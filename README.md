@@ -44,7 +44,7 @@ The Sender keeps its room across reloads, so Viewers stay paired. **New** moves 
 | --- | --- |
 | **HTTPS** (or `localhost`) | Browsers only expose `DeviceOrientationEvent` in secure contexts. GitHub Pages provides HTTPS. |
 | iOS 13+ | Motion permission via `DeviceOrientationEvent.requestPermission()` and `DeviceMotionEvent.requestPermission()`, which need a tap. iOS shows one prompt for both. |
-| Screen Wake Lock (iOS 16.4+, Chrome 84+) | Keeps both screens on. Without it the phone auto-locks and the stream stops. The app still works where it's unsupported. |
+| Screen Wake Lock (iOS 16.4+, Chrome 84+) | Keeps both screens on. Without it the phone auto-locks and the stream stops. The Sender asks when you tap Start Streaming; Viewers and the die page ask on load. If the browser drops the lock while the page is on screen, the app asks again after 1 s. If it refuses, the next tap anywhere asks again. The app still works where it's unsupported. For long unattended runs, such as a phone sealed in a box, also set the device's Auto-Lock to Never and turn off Low Power Mode, which the page can't override. |
 
 Desktop browsers have no gyroscope. After about 1.6 s the Sender offers **Enable Simulated Gyro (Test)**, which is useful for testing with one phone, or none. It simulates acceleration too, with gravity matching the simulated tilt.
 
@@ -75,7 +75,7 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
 - **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, iOS signs flipped to the W3C convention, and simulated gravity matching the simulated tilt.
 - **Die page:** a `view=die` link opens it with the die forced but not saved, the title "Die", and the status wording from Waiting for the die through Live, Weak signal and Signal lost. The Sender counts it, the normal Viewer on the same phone is unchanged, `view=die` without a valid room opens the normal app, and missing credentials show only the settings until they're saved.
-- **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
+- **Settings:** wake lock requested, re-requested when the page returns, when the browser drops it while visible (not while hidden), and on the next tap after a refusal (one request for two taps); stopping the stream releases it for good; `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
 
 If a check throws, the run reports a crash and exits 1, never a silent pass.
 
@@ -162,7 +162,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 1. Sender: the room and QR code render. Two Viewers scan it, and **Viewers Watching** shows 2. Start streaming, and both Viewers show **Live** at about 10 Hz.
 2. Lock the Sender phone for 10 s, then unlock. The stream resumes on its own. Reload the Sender: same room, and the Viewers recover without re-pairing.
 3. Toggle airplane mode on either phone. It reconnects after the network returns.
-4. Leave the Viewer untouched for over 1 minute. The screen stays on (wake lock).
+4. Leave the Viewer untouched for over 1 minute. The screen stays on (wake lock). If it dims anyway, tap it once (that retries a refused wake lock) and repeat.
 5. Paste a `service_role` key into settings. It's rejected.
 6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
 7. Switch the Viewer to **Die**. Lay the Sender flat, screen up: **On Top** reads 1, and the die shows its 1 face. Screen down: 6. Stand it on its bottom edge: 2. On its top edge: 5. Right edge up: 4. Left edge up: 3. Reload the Viewer: it stays on Die.

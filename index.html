@@ -1786,6 +1786,7 @@
       const LEAVE_TIMEOUT_MS = 1500;        // Max wait for a channel leave before reconnecting
       const GRAVITY = 9.81;                 // m/s², used by the simulated accelerometer
       const PEAK_HOLD_MS = 1000;            // Displayed acceleration peak is held this long
+      const WAKE_LOCK_RETRY_MS = 1000;      // Wait before asking again when the browser drops the wake lock
       // Die face on each side of the phone, as [device axis, sign]. W3C axes: 0 = x (right),
       // 1 = y (toward the top edge), 2 = z (out of the screen). Opposite faces add up to 7, and
       // 1, 2, 3 run counterclockwise around their shared corner, like a standard die.
@@ -1848,6 +1849,9 @@
         sendSeq: 0,
         sendTimestamps: [],
         wakeLockSentinel: null,
+        wakeLockWanted: false,                // Screen should stay on: Sender while streaming, Viewer always
+        wakeLockPending: null,                // In-flight request, so overlapping asks don't stack locks
+        wakeLockRetryId: null,
 
         // Viewer state
         hasReceivedPacket: false,
@@ -2552,21 +2556,42 @@
       }
 
       // =========================================================================
-      // 9. SCREEN WAKE LOCK (SENDER)
+      // 9. SCREEN WAKE LOCK (SENDER WHILE STREAMING, VIEWER ALWAYS)
+      //    An auto-locked phone suspends the page and the stream. The lock is asked for again
+      //    when the browser drops it while the page is on screen, when the page becomes visible
+      //    again (section 13), and on any tap after a refusal (section 14).
       // =========================================================================
+      function hasWakeLock() {
+        return !!state.wakeLockSentinel && !state.wakeLockSentinel.released;
+      }
+
       async function acquireWakeLock() {
+        state.wakeLockWanted = true;
         if (!('wakeLock' in navigator) || !navigator.wakeLock) {
           dom.sWakeLock.textContent = 'Unsupported';
           dom.sWakeLock.className = 'stat-val warn';
           return;
         }
-        if (state.wakeLockSentinel && !state.wakeLockSentinel.released) {
+        if (hasWakeLock()) {
           dom.sWakeLock.textContent = 'Active';
           dom.sWakeLock.className = 'stat-val good';
           return;
         }
+        if (!state.wakeLockPending) {
+          state.wakeLockPending = requestWakeLock().finally(() => {
+            state.wakeLockPending = null;
+          });
+        }
+        return state.wakeLockPending;
+      }
+
+      async function requestWakeLock() {
         try {
           const sentinel = await navigator.wakeLock.request('screen');
+          if (!state.wakeLockWanted) {
+            sentinel.release().catch(() => {}); // Released while the request was in flight
+            return;
+          }
           state.wakeLockSentinel = sentinel;
           dom.sWakeLock.textContent = 'Active';
           dom.sWakeLock.className = 'stat-val good';
@@ -2582,14 +2607,25 @@
               dom.sWakeLock.textContent = 'Inactive';
               dom.sWakeLock.className = 'stat-val';
             }
+            // Dropped while on screen (e.g. battery saver): ask again. A hidden page waits for
+            // visibilitychange instead, since browsers refuse requests from hidden pages.
+            if (state.wakeLockWanted && document.visibilityState === 'visible') {
+              clearTimeout(state.wakeLockRetryId);
+              state.wakeLockRetryId = setTimeout(() => {
+                if (state.wakeLockWanted && document.visibilityState === 'visible') acquireWakeLock();
+              }, WAKE_LOCK_RETRY_MS);
+            }
           });
         } catch {
+          // Refused (no tap yet, battery saver…). The next tap anywhere asks again.
           dom.sWakeLock.textContent = 'Denied / Low Battery';
           dom.sWakeLock.className = 'stat-val warn';
         }
       }
 
       async function releaseWakeLock() {
+        state.wakeLockWanted = false;
+        clearTimeout(state.wakeLockRetryId);
         if (state.wakeLockSentinel) {
           try {
             await state.wakeLockSentinel.release();
@@ -3520,6 +3556,12 @@
 
       dom.btnLinkViewer.addEventListener('click', () => setPairingLink('viewer'));
       dom.btnLinkDie.addEventListener('click', () => setPairingLink('die'));
+
+      // A refused wake lock (e.g. the die page asks on load, without a tap) gets another try on
+      // the next tap anywhere; a tap counts as the user gesture some browsers want.
+      document.addEventListener('pointerup', () => {
+        if (state.wakeLockWanted && !hasWakeLock()) acquireWakeLock();
+      });
 
       dom.chkIncludeCreds.addEventListener('change', () => {
         renderRoomQR();

@@ -72,7 +72,7 @@ function createServer() {
   };
 }
 
-function boot({ search = '', hash = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false, windowExtras = {} } = {}) {
+function boot({ search = '', hash = '', wakeDeny = false, storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false, windowExtras = {} } = {}) {
   const els = {};
   const mkEl = id => {
     const listeners = {};
@@ -181,7 +181,7 @@ function boot({ search = '', hash = '', storedKey = ANON, leaveDelay = 150, join
   };
 
   // Browsers auto-release screen wake locks when the page is hidden and fire 'release'
-  const wake = { requested: 0, released: 0, sentinels: [] };
+  const wake = { requested: 0, released: 0, sentinels: [], deny: wakeDeny }; // deny: the browser refuses requests
   wake.autoRelease = () => wake.sentinels.forEach(s => {
     if (!s.released) { s.released = true; s.listeners.forEach(fn => fn()); }
   });
@@ -190,6 +190,7 @@ function boot({ search = '', hash = '', storedKey = ANON, leaveDelay = 150, join
     wakeLock: {
       request: async () => {
         wake.requested++;
+        if (wake.deny) throw Object.assign(new Error('denied'), { name: 'NotAllowedError' });
         const s = {
           released: false, listeners: [],
           addEventListener(t, fn) { if (t === 'release') this.listeners.push(fn); },
@@ -676,6 +677,56 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await (t2.els['btn-link-viewer'] || boot.noEl).fire('click');
     check('Viewer switch goes back to the Viewer link', store.get('gyrolink_sender_link') === 'viewer' && !lastQr2().includes('view=die'), lastQr2().slice(0, 60));
     await t2.els['btn-sender-back'].fire('click');
+  }
+
+  // 12. Screen wake lock: asked for again when the browser drops it, and on a tap after a refusal
+  {
+    const held = p => p.wake.sentinels.filter(s => !s.released).length;
+    // Browser drops the lock while the page stays visible (e.g. battery saver)
+    const d = boot({ search: '?room=AB12&view=die' });
+    await sleep(100);
+    d.wake.autoRelease();
+    await sleep(1300);
+    check('wake lock asked for again when dropped while visible', d.wake.requested === 2 && held(d) === 1, `requests=${d.wake.requested} held=${held(d)}`);
+
+    // Hidden page: wait for visibilitychange instead of asking in the background
+    d.doc.visibilityState = 'hidden';
+    d.wake.autoRelease();
+    await sleep(1300);
+    check('no wake lock request while the page is hidden', d.wake.requested === 2, `requests=${d.wake.requested}`);
+    d.doc.visibilityState = 'visible';
+    await d.fireDoc('visibilitychange');
+    await sleep(50);
+
+    // Refused on load (no tap yet): the next tap anywhere asks again, once
+    const r = boot({ search: '?room=AB12&view=die', wakeDeny: true });
+    await sleep(100);
+    check('die page wake lock refused on load', r.wake.requested === 1 && held(r) === 0, `requests=${r.wake.requested}`);
+    r.wake.deny = false;
+    await sleep(1300);
+    check('a refusal is not retried without a tap', r.wake.requested === 1, `requests=${r.wake.requested}`);
+    r.fireDoc('pointerup');
+    r.fireDoc('pointerup');
+    await sleep(50);
+    check('a tap asks for the wake lock again', r.wake.requested === 2 && held(r) === 1, `requests=${r.wake.requested} held=${held(r)}`);
+    await r.fireDoc('pointerup');
+    await sleep(50);
+    check('taps while the lock is held ask nothing', r.wake.requested === 2, `requests=${r.wake.requested}`);
+
+    // Intentional release (Sender stops streaming) is not undone
+    const s = boot();
+    await s.els['btn-choose-sender'].fire('click');
+    await s.els['btn-toggle-stream'].fire('click');
+    await sleep(100);
+    const before = s.wake.requested;
+    await s.els['btn-toggle-stream'].fire('click');
+    await sleep(1300);
+    await s.fireDoc('pointerup');
+    await sleep(50);
+    check('stopping the stream releases the wake lock for good', before === 1 && s.wake.requested === 1 && held(s) === 0, `before=${before} requests=${s.wake.requested} held=${held(s)}`);
+
+    for (const p of [d, r]) await p.els['btn-viewer-back'].fire('click');
+    await s.els['btn-sender-back'].fire('click');
   }
 
   check('no unhandled promise rejections', unhandled.length === 0, unhandled.join('; '));
