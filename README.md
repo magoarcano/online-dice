@@ -6,7 +6,7 @@ Stream live gyroscope (device orientation) and accelerometer data from one phone
 
 - **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma) and `DeviceMotionEvent` (acceleration), and broadcasts the latest reading every 100 ms.
 - **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, or a die with a big readout of the number on top, shows the acceleration, and has rate, jitter, packet-age and dropped-packet stats.
-- **Die page** (`?view=die`): a Viewer for an observer. It shows only the die, the number on top and a live status, with nothing about how it works. The Sender phone goes inside a box shaped like a die, and the observer watches the roll, or the box tilting in someone's hand.
+- **Die page** (`?room=CODE&view=die`): a Viewer for an observer. It shows only the die, the number on top and a live status, with nothing about how it works. The Sender phone goes inside a box shaped like a die, and the observer watches the roll, or the box tilting in someone's hand.
 
 The whole app is one static file, `index.html`, with no build step. (The repo is named `online-dice` for historical reasons; the app is GyroLink.)
 
@@ -63,7 +63,7 @@ python3 -m http.server 8000      # then open http://localhost:8000
 ### Tests
 
 ```sh
-npm test        # same as: node tests/harness.test.js   (Node 18+, no dependencies, ~5 s)
+npm test        # same as: node tests/harness.test.js   (Node 18+, no dependencies, ~15 s)
 ```
 
 `tests/harness.test.js` runs the page's **real inline script** in Node `vm` sandboxes, one per simulated phone, each with a fake DOM and a mock Supabase client. Phones share an in-memory mock server, so broadcasts and presence flow between them. The mock copies the realtime-js 2.119.2 behaviors the app depends on: same-topic channel reuse, async leave, throwing on a second `subscribe`, and presence `track`/`sync`. It covers:
@@ -130,7 +130,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`, `view=die`) · `7` health badge & status wording (`STREAM_LABELS`) · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, die & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`; die page title) · `13` visibility & network recovery · `14` event listeners · `15` init.
+`1` config placeholders · `2` constants (incl. `STREAM_LABELS`, the Viewer / die page status wording) · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`, `view=die`) · `7` health badge & status pill · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room, Viewer | Die switch) & viewer (3D, die & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`; die page title) · `13` visibility & network recovery · `14` event listeners · `15` init (decides the die page; an ignored `view=die` is dropped from the URL).
 
 ---
 
@@ -166,4 +166,4 @@ This matters because `client.channel(topic)` **returns any existing channel with
 5. Paste a `service_role` key into settings. It's rejected.
 6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
 7. Switch the Viewer to **Die**. Lay the Sender flat, screen up: **On Top** reads 1, and the die shows its 1 face. Screen down: 6. Stand it on its bottom edge: 2. On its top edge: 5. Right edge up: 4. Left edge up: 3. Reload the Viewer: it stays on Die.
-8. Open the die page link on a phone. Only the die, the number and the status show, in portrait and in landscape. Tilt the Sender: the die follows. Lock and unlock the die phone: it recovers on its own.
+8. On the Sender, flip the switch above the QR code to **Die** and scan it with another phone. Only the die, the number and the status show, in portrait and in landscape, and **Viewers Watching** counts it. Tilt the Sender: the die follows. Leave the die phone untouched for over 1 minute: the screen stays on. Lock and unlock it: it recovers on its own.

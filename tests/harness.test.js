@@ -609,7 +609,25 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await sleep(100);
     check('saving settings on the die page joins and hides them', shell(empty).setup === 'done' && empty.mock.channels[0] && empty.mock.channels[0].topic === 'realtime:gyrolink-room-AB12', `${shell(empty).setup}`);
 
-    for (const p of [d, v, empty]) await p.els['btn-viewer-back'].fire('click'); // stop watchdogs
+    // supabase-js failed to load (CDN blocked): the observer gets the die page's own wording
+    const noLib = boot({ search: '?room=AB12&view=die', windowExtras: { supabase: undefined } });
+    await sleep(50);
+    check('die page without supabase-js says Signal lost', noLib.text('v-stream-pill') === 'Signal lost', noLib.text('v-stream-pill'));
+
+    // An ignored view=die must not come back once the normal Viewer joins a room
+    const stray = boot({ search: '?view=die' });
+    await stray.els['btn-choose-viewer'].fire('click');
+    stray.els['viewer-room-input'].value = 'CD34';
+    await stray.els['viewer-join-form'].fire('submit');
+    await sleep(100);
+    check('ignored view=die is dropped from the URL', stray.location.search === '?room=CD34', stray.location.search);
+
+    // Old engines drop a whole rule over one selector they can't parse, e.g. a :not() selector list
+    const dieRules = [...html.matchAll(/([^{}]*\[data-page="die"\][^{}]*)\{[^}]*display:\s*none/g)].map(m => m[1]);
+    const listNot = dieRules.flatMap(sel => sel.match(/:not\([^)]*,[^)]*\)/g) || []);
+    check('die-page hide rules avoid :not() selector lists', dieRules.length > 0 && listNot.length === 0, `rules=${dieRules.length} ${listNot.join(' ')}`);
+
+    for (const p of [d, v, empty, noLib, stray]) await p.els['btn-viewer-back'].fire('click'); // stop watchdogs
     await sender.els['btn-sender-back'].fire('click');
   }
 

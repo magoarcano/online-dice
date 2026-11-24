@@ -1142,9 +1142,9 @@
     /* Die page (?view=die): an observer sees only the die, the face on top and the status.
        Everything else is hidden by listing what stays, so later Viewer additions stay hidden too. */
     .app-shell[data-page="die"] > .app-header,
-    .app-shell[data-page="die"] #main-content > :not(#view-viewer, #settings-panel),
+    .app-shell[data-page="die"] #main-content > :not(#view-viewer):not(#settings-panel),
     .app-shell[data-page="die"] #view-viewer > .card > :not(#v-stage),
-    .app-shell[data-page="die"] #v-stage > :not(.stage-overlay-top, .model-3d, .stage-overlay-bottom),
+    .app-shell[data-page="die"] #v-stage > :not(.stage-overlay-top):not(.model-3d):not(.stage-overlay-bottom),
     .app-shell[data-page="die"] #v-hz-chip,
     .app-shell[data-page="die"] #v-stage .model-toggle,
     .app-shell[data-page="die"] .die-top-label,
@@ -1803,10 +1803,12 @@
         viewer: {
           live: 'Live', stalled: 'Signal Stalled', offline: 'Sender Offline',
           waiting: 'Waiting for Sender', connecting: 'Reconnecting…', disconnected: 'Disconnected',
+          notJoined: 'Enter Room Code',
         },
         die: {
           live: 'Live', stalled: 'Weak signal', offline: 'Signal lost',
           waiting: 'Waiting for the die', connecting: 'Connecting…', disconnected: 'Signal lost',
+          notJoined: 'Signal lost', // e.g. supabase-js failed to load; the die page has no code field
         },
       };
 
@@ -2205,7 +2207,7 @@
           dom.vChannel.textContent = 'IDLE · 0';
           dom.vChannel.className = 'stat-val';
           dom.vStreamPill.dataset.stream = 'waiting';
-          dom.vStreamPill.textContent = 'Enter Room Code';
+          dom.vStreamPill.textContent = STREAM_LABELS[state.diePage ? 'die' : 'viewer'].notJoined;
           dom.vConnNote.textContent = "Scan the Sender's QR code or enter its room code";
           return;
         }
@@ -3540,6 +3542,12 @@
         const opensRoom = incomingRoom.length === 4;
         state.diePage = diePage && opensRoom; // view=die without a valid room opens the normal app
         if (state.diePage) dom.appShell.dataset.page = 'die';
+        if (diePage && !state.diePage) {
+          // Ignored view=die: drop it, or a room joined later would reload as the die page
+          const url = new URL(window.location.href);
+          url.searchParams.delete('view');
+          window.history.replaceState(null, '', url.toString());
+        }
         syncSettingsUI();
 
         if (purgedSecret) {
