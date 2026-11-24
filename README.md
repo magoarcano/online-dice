@@ -70,7 +70,7 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects, and presence is re-tracked. Switch Mode during an in-flight connect leaves no stray channel. Tapping Start doesn't restart the Sender's auto-connect.
 - **3D mirror:** feeds poses through the Viewer and compares the actual `.phone-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
-- **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, and simulated gravity matching the simulated tilt.
+- **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, iOS signs flipped to the W3C convention, and simulated gravity matching the simulated tilt.
 - **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
 
 If a check throws, the run reports a crash and exits 1, never a silent pass.
@@ -98,6 +98,7 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 - Hosts the room. On entering Sender mode it reuses or creates its room code, renders the QR code and connects right away, so the Viewer count is live before streaming starts. Start Streaming reuses that connection, even while it's still joining.
 - `deviceorientation` updates the latest reading. A `setInterval(100 ms)` loop broadcasts it, but only after the first real (or simulated) reading, so it never sends a placeholder `0/0/0`.
 - `devicemotion` (about 60 Hz) updates the latest acceleration and tracks the peak between ticks. Each packet carries the latest sample plus that peak, so a short tap or bump that falls between two packets still reaches the Viewers. Acceleration rides in the same packet, so it adds bytes, not messages.
+- **iOS acceleration signs are flipped** to match the W3C spec. WebKit on iOS passes Core Motion's readings straight through (`WebCoreMotionManager.mm`), and Core Motion's sign is the opposite of the spec's: lying flat, screen up, it reads z = −9.81 instead of +9.81. Both vectors are flipped, since WebKit builds them from the same values. iOS is detected by `DeviceMotionEvent.requestPermission`, which only WebKit on iOS / iPadOS has.
 - Sending is gated on `state.isSubscribed`. Without that gate, `channel.send()` would silently fall back to REST POSTs.
 - Both iOS permission requests (orientation and motion) must **start before the first `await`** in the Start click handler, or iOS loses the user gesture and refuses. Motion access is optional: if it fails, the Sender streams orientation only.
 
@@ -142,7 +143,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ## Known gaps / TODO
 
-- [ ] Check the acceleration axes and signs on real iOS and Android phones. iOS and Android have been known to disagree on the sign of `accelerationIncludingGravity`, and the app passes values through unchanged.
+- [ ] Check the acceleration signs on a real Android phone. iPhone is confirmed and fixed: before the flip it read z = −9.81 lying flat.
 - [ ] Check the 3D tilt directions on real devices. `npm test` checks the math against the spec, but no real devices have been tested yet.
 - [ ] Calibration uses per-angle subtraction; quaternions would be correct at large tilts.
 - [ ] Viewers can't tell an idle Sender (online, not streaming) from an absent one. The Sender could also track presence.

@@ -2331,10 +2331,17 @@
         dom.sGammaBar.style.setProperty('--pct', `${clamp(((g + 90) / 180) * 100, 0, 100)}%`);
       }
 
+      // WebKit on iOS passes Core Motion's readings straight through, and Core Motion's sign is the
+      // opposite of the W3C spec's (lying flat, screen up: z = -9.81, not +9.81). WebKit builds both
+      // vectors from the same values, so both get flipped. requestPermission() exists only in WebKit on
+      // iOS / iPadOS, which every iOS browser uses.
+      const MOTION_SIGN = window.DeviceMotionEvent && typeof window.DeviceMotionEvent.requestPermission === 'function' ? -1 : 1;
+
       function handleDeviceMotion(event) {
         if (state.isSimulating) return; // The simulation supplies its own acceleration
-        const acc = toVec3(event.acceleration);
-        const accg = toVec3(event.accelerationIncludingGravity);
+        const toW3C = v => v && v.map(n => n * MOTION_SIGN);
+        const acc = toW3C(toVec3(event.acceleration));
+        const accg = toW3C(toVec3(event.accelerationIncludingGravity));
         if (acc || accg) recordAccel(acc, accg);
       }
 

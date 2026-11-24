@@ -471,6 +471,13 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await sleep(300);
     check('iOS: streams even when motion permission fails', t.text('btn-toggle-stream-label') === 'Stop Streaming' && t.hasWinListener('devicemotion'), t.text('btn-toggle-stream-label'));
 
+    // iOS passes Core Motion's signs through: flat and screen up reads z = -9.81. Packets use W3C signs.
+    t.fireWin('deviceorientation', { alpha: 0, beta: 0, gamma: 0 });
+    t.fireWin('devicemotion', { acceleration: { x: 0.5, y: 0, z: 0 }, accelerationIncludingGravity: { x: 0.5, y: 0, z: -9.81 } });
+    await sleep(150);
+    const ios = t.mock.sent.length && t.mock.sent[t.mock.sent.length - 1].payload;
+    check('iOS: acceleration flipped to W3C signs', ios && JSON.stringify(ios.acc) === '[-0.5,0,0]' && JSON.stringify(ios.accg) === '[-0.5,0,9.81]', JSON.stringify(ios));
+
     await t.els['btn-toggle-sim'].fire('click');
     await sleep(250);
     const p = t.mock.sent.length && t.mock.sent[t.mock.sent.length - 1].payload;
