@@ -6,6 +6,7 @@ Stream live gyroscope (device orientation) and accelerometer data from one phone
 
 - **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma) and `DeviceMotionEvent` (acceleration), and broadcasts the latest reading every 100 ms.
 - **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, or a die with a big readout of the number on top, shows the acceleration, and has rate, jitter, packet-age and dropped-packet stats.
+- **Die page** (`?view=die`): a Viewer for an observer. It shows only the die, the number on top and a live status, with nothing about how it works. The Sender phone goes inside a box shaped like a die, and the observer watches the roll, or the box tilting in someone's hand.
 
 The whole app is one static file, `index.html`, with no build step. (The repo is named `online-dice` for historical reasons; the app is GyroLink.)
 
@@ -72,6 +73,7 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Die:** the `.die-N` faces (parsed from `index.html`) sit on the specified sides, the big number is right for each side resting up and matches the face the drawn die points at the camera across 120 poses, it doesn't flicker near an edge, Calibrate re-zeroes it, and the Phone / Die choice is saved.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
 - **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, iOS signs flipped to the W3C convention, and simulated gravity matching the simulated tilt.
+- **Die page:** a `view=die` link opens it with the die forced but not saved, the title "Die", and the status wording from Waiting for the die through Live, Weak signal and Signal lost. The Sender counts it, the normal Viewer on the same phone is unchanged, `view=die` without a valid room opens the normal app, and missing credentials show only the settings until they're saved.
 - **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
 
 If a check throws, the run reports a crash and exits 1, never a silent pass.
@@ -93,7 +95,7 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 | Payload | `{ a, b, g, seq, ts, acc, accg, pk }`: degrees rounded to 0.1, `seq` increases by 1 per sent packet, `ts` = sender `Date.now()`. Acceleration in m/s², rounded to 0.01, W3C device axes: `acc` = `[x, y, z]` without gravity, `accg` = `[x, y, z]` with gravity (about `[0, 0, 9.81]` lying flat, screen up), `pk` = peak \|`acc`\| since the previous packet. `acc`/`accg`/`pk` are left out until the accelerometer reports. `acc` and `pk` are `null` on devices that only report acceleration with gravity. |
 | Presence | Viewers `track({ role: 'viewer' })` under a stable per-tab key (`config.presence.key`) and re-track on every (re)join. The Sender listens for `sync` and counts keys with a viewer entry. Presence is in-memory on the Realtime server, with no DB writes. |
 | Room code | 4 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `I L O 0 1`). Created by the **Sender** and saved under `gyrolink_sender_room`. |
-| Pairing URL | `?room=CODE#u=<supabase-url>&k=<key>` opens **Viewer** mode and joins `CODE`. Credentials go in the hash, so they never reach a server. They're cleared from the address bar on load and saved under `gyrolink_supabase_url` / `gyrolink_supabase_anon_key`. |
+| Pairing URL | `?room=CODE#u=<supabase-url>&k=<key>` opens **Viewer** mode and joins `CODE`. Adding `&view=die` (`?room=CODE&view=die#…`) opens the **die page** instead; `view=die` without a valid room is ignored. Credentials go in the hash, so they never reach a server. They're cleared from the address bar on load and saved under `gyrolink_supabase_url` / `gyrolink_supabase_anon_key`. |
 
 ### Sender
 - Hosts the room. On entering Sender mode it reuses or creates its room code, renders the QR code and connects right away, so the Viewer count is live before streaming starts. Start Streaming reuses that connection, even while it's still joining.
@@ -110,6 +112,7 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 - **3D model:** `rotateZ(-α) rotateX(-β) rotateY(γ)` on `.model-3d`. That's the W3C intrinsic Z-X′-Y″ order, adjusted for CSS's downward Y axis, with the camera looking down at a phone lying flat. The angles are unwrapped so the CSS transition never spins the long way around through 360°.
 - **Acceleration:** each axis card shows acceleration without gravity, with the with-gravity value underneath. **Peak** holds the highest `pk` for 1 s so a short tap stays readable. Malformed values show `—`. Calibrate doesn't affect acceleration.
 - **Die:** the **Phone / Die** toggle on the stage swaps the model, and the choice is saved under `gyrolink_viewer_model`. The die's faces follow the phone's sides: screen **1**, back **6**, right **4**, left **3**, top edge **2**, bottom edge **5**, so 1, 2 and 3 run counterclockwise around their shared corner, like a standard die. **On Top** shows, in big, the face pointing most nearly up: the largest entry of the W3C rotation matrix's bottom row `[-cos β sin γ, sin β, cos β cos γ]`, signed per face. Alpha doesn't change it. It uses the same calibrated pose as the model, keeps the current face until another is about 3° past the 45° edge (`DIE_HYSTERESIS`), shows `—` before the first packet, and dims while the stream isn't Live.
+- **Die page** (`view=die`): the same Viewer underneath, with the same join, presence (the Sender counts it), watchdog, wake lock and reconnects. CSS on `#app-shell[data-page="die"]` hides everything except the stage, by listing what stays visible. What's left is the die (sized to the screen), the number on top (no label), and a dot and a word for the status: *Live*, *Connecting…*, *Waiting for the die*, *Weak signal* (stalled) or *Signal lost* (offline or disconnected). The wording comes from `STREAM_LABELS`. The die is forced on without saving `gyrolink_viewer_model`, so the phone's normal Viewer choice is unchanged. There's no calibration, no toasts, and the tab title is just "Die". If credentials are missing, only the Supabase settings show (`data-setup="needed"`); after they're saved, the page joins and the settings hide.
 - **Calibrate** subtracts each angle separately. That's approximate and fine for small tilts, but it distorts at large ones.
 
 ### Reconnection (script section 8: `connectToRoom`)
@@ -125,7 +128,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, die & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
+`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`, `view=die`) · `7` health badge & status wording (`STREAM_LABELS`) · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, die & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`; die page title) · `13` visibility & network recovery · `14` event listeners · `15` init.
 
 ---
 
@@ -161,3 +164,4 @@ This matters because `client.channel(topic)` **returns any existing channel with
 5. Paste a `service_role` key into settings. It's rejected.
 6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
 7. Switch the Viewer to **Die**. Lay the Sender flat, screen up: **On Top** reads 1, and the die shows its 1 face. Screen down: 6. Stand it on its bottom edge: 2. On its top edge: 5. Right edge up: 4. Left edge up: 3. Reload the Viewer: it stays on Die.
+8. Open the die page link on a phone. Only the die, the number and the status show, in portrait and in landscape. Tilt the Sender: the die follows. Lock and unlock the die phone: it recovers on its own.

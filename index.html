@@ -1029,8 +1029,8 @@
       inset: 0;
       display: grid;
       grid-template: repeat(3, 1fr) / repeat(3, 1fr);
-      padding: 14px;
-      border-radius: 14px;
+      padding: calc(var(--die-size) * 0.14);
+      border-radius: calc(var(--die-size) * 0.14);
       background: radial-gradient(circle at 30% 25%, #ffffff, #e2e8f0 65%, #cbd5e1);
       box-shadow:
         inset 0 0 0 2px rgba(100, 116, 139, 0.55),
@@ -1047,16 +1047,16 @@
     .die-5 { transform: rotateX(-90deg) translateZ(calc(var(--die-size) / 2)); } /* BOTTOM edge */
 
     .pip {
-      width: 17px;
-      height: 17px;
+      width: calc(var(--die-size) * 0.17);
+      height: calc(var(--die-size) * 0.17);
       place-self: center;
       border-radius: 50%;
       background: radial-gradient(circle at 35% 35%, #475569, #020617 70%);
     }
 
     .die-1 .pip {
-      width: 24px;
-      height: 24px;
+      width: calc(var(--die-size) * 0.24);
+      height: calc(var(--die-size) * 0.24);
     }
 
     .pip.tl { grid-area: 1 / 1; }
@@ -1139,6 +1139,113 @@
       opacity: 0.4;
     }
 
+    /* Die page (?view=die): an observer sees only the die, the face on top and the status.
+       Everything else is hidden by listing what stays, so later Viewer additions stay hidden too. */
+    .app-shell[data-page="die"] > .app-header,
+    .app-shell[data-page="die"] #main-content > :not(#view-viewer, #settings-panel),
+    .app-shell[data-page="die"] #view-viewer > .card > :not(#v-stage),
+    .app-shell[data-page="die"] #v-stage > :not(.stage-overlay-top, .model-3d, .stage-overlay-bottom),
+    .app-shell[data-page="die"] #v-hz-chip,
+    .app-shell[data-page="die"] #v-stage .model-toggle,
+    .app-shell[data-page="die"] .die-top-label,
+    .app-shell[data-page="die"] ~ .toast-region,
+    .app-shell[data-page="die"]:not([data-setup="needed"]) #settings-panel,
+    .app-shell[data-page="die"][data-setup="needed"] #view-viewer {
+      display: none;
+    }
+
+    .app-shell[data-page="die"] {
+      max-width: none;
+      padding: 0;
+      gap: 0;
+    }
+
+    /* Missing credentials: the settings panel alone, laid out like the normal app */
+    .app-shell[data-page="die"][data-setup="needed"] {
+      max-width: 560px;
+      padding: 14px;
+    }
+
+    .app-shell[data-page="die"] #view-viewer > .card {
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: none;
+    }
+
+    .app-shell[data-page="die"] .stage-container {
+      --die-size: min(44vmin, 240px);
+      height: 100dvh;
+      border: 0;
+      border-radius: 0;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(56, 189, 248, 0.10), transparent 60%),
+        var(--bg-base);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: calc(var(--die-size) * 0.5); /* Room for the die's corners when it tilts */
+      perspective: 1200px;
+    }
+
+    .app-shell[data-page="die"] .stage-overlay-top {
+      top: 16px;
+      left: 18px;
+    }
+
+    .app-shell[data-page="die"] .stage-overlay-bottom {
+      position: static;
+      justify-content: center;
+    }
+
+    .app-shell[data-page="die"] .die-top-readout {
+      align-items: center;
+    }
+
+    .app-shell[data-page="die"] .die-top-value {
+      font-size: clamp(5rem, 24vmin, 11rem);
+    }
+
+    /* Status: a dot and a word */
+    .app-shell[data-page="die"] .stream-pill {
+      gap: 8px;
+      padding: 0;
+      background: none;
+      border: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .app-shell[data-page="die"] .stream-pill::before {
+      content: '';
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+
+    .app-shell[data-page="die"] .stream-pill[data-stream="live"]::before {
+      background: var(--status-green);
+      box-shadow: 0 0 8px var(--status-green);
+    }
+
+    .app-shell[data-page="die"] .stream-pill[data-stream="stalled"]::before {
+      background: var(--status-yellow);
+    }
+
+    .app-shell[data-page="die"] .stream-pill[data-stream="offline"]::before {
+      background: var(--status-red);
+    }
+
+    @media (orientation: landscape) {
+      .app-shell[data-page="die"] .stage-container {
+        flex-direction: row;
+        gap: calc(var(--die-size) * 0.7);
+      }
+    }
+
     /* Footer / Connection Controls */
     .reconnect-bar {
       display: flex;
@@ -1219,7 +1326,7 @@
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell" id="app-shell">
     <!-- Top Header -->
     <header class="app-header">
       <div class="brand">
@@ -1686,12 +1793,24 @@
         5: [1, -1], // BOTTOM edge
       };
       const DIE_HYSTERESIS = 0.08;          // ≈ ±3° around an edge, so the top number doesn't flicker
+      // Viewer status pill wording. The die page (?view=die) is watched by an observer, so it avoids "Sender".
+      const STREAM_LABELS = {
+        viewer: {
+          live: 'Live', stalled: 'Signal Stalled', offline: 'Sender Offline',
+          waiting: 'Waiting for Sender', connecting: 'Reconnecting…', disconnected: 'Disconnected',
+        },
+        die: {
+          live: 'Live', stalled: 'Weak signal', offline: 'Signal lost',
+          waiting: 'Waiting for the die', connecting: 'Connecting…', disconnected: 'Signal lost',
+        },
+      };
 
       // =========================================================================
       // 3. APPLICATION STATE
       // =========================================================================
       const state = {
         mode: 'selector', // 'selector' | 'sender' | 'viewer'
+        diePage: false,   // Viewer opened from a ?view=die link: only the die, its top face and the status
         roomCode: '',
         supabaseClient: null,
         channel: null,
@@ -1751,6 +1870,7 @@
       }
 
       const dom = {
+        appShell: document.getElementById('app-shell'),
         httpsBanner: document.getElementById('https-banner'),
         healthBadge: document.getElementById('health-badge'),
         healthBadgeText: document.getElementById('health-badge-text'),
@@ -1996,6 +2116,7 @@
         dom.cfgKey.value = isPlaceholderValue(key) ? '' : key;
 
         const valid = validateCredentials(url, key).ok;
+        dom.appShell.dataset.setup = valid ? 'done' : 'needed'; // The die page shows settings only when needed
         dom.settingsPill.textContent = valid ? 'Configured' : 'Setup Required';
         dom.settingsPill.className = `summary-pill ${valid ? 'ok' : 'warn'}`;
         if (!valid) {
@@ -2013,6 +2134,7 @@
         const incomingUrl = (hashParams.get('u') || searchParams.get('u') || '').trim();
         const incomingKey = (hashParams.get('k') || searchParams.get('k') || '').trim();
         const incomingRoom = sanitizeRoomCode(searchParams.get('room') || hashParams.get('room') || '');
+        const diePage = searchParams.get('view') === 'die';
 
         let credsImported = false;
         if (incomingUrl && incomingKey && validateCredentials(incomingUrl, incomingKey).ok) {
@@ -2030,7 +2152,7 @@
           window.history.replaceState(null, '', cleanUrl.toString());
         }
 
-        return { incomingRoom, credsImported };
+        return { incomingRoom, credsImported, diePage };
       }
 
       // =========================================================================
@@ -2081,6 +2203,7 @@
         }
 
         if (state.mode === 'viewer') {
+          const label = STREAM_LABELS[state.diePage ? 'die' : 'viewer'];
           dom.vChannel.textContent = `${ch} · ${state.droppedPackets}`;
           if (ch === 'SUBSCRIBED') {
             dom.vChannel.className = 'stat-val good';
@@ -2088,22 +2211,22 @@
               badge.dataset.state = 'green';
               badgeText.textContent = 'Live';
               dom.vStreamPill.dataset.stream = 'live';
-              dom.vStreamPill.textContent = 'Live';
+              dom.vStreamPill.textContent = label.live;
             } else if (state.streamHealth === 'stalled') {
               badge.dataset.state = 'yellow';
               badgeText.textContent = 'Signal Stalled';
               dom.vStreamPill.dataset.stream = 'stalled';
-              dom.vStreamPill.textContent = 'Signal Stalled';
+              dom.vStreamPill.textContent = label.stalled;
             } else if (state.streamHealth === 'offline') {
               badge.dataset.state = 'red';
               badgeText.textContent = 'Sender Offline';
               dom.vStreamPill.dataset.stream = 'offline';
-              dom.vStreamPill.textContent = 'Sender Offline';
+              dom.vStreamPill.textContent = label.offline;
             } else {
               badge.dataset.state = 'green';
               badgeText.textContent = 'Connected';
               dom.vStreamPill.dataset.stream = 'waiting';
-              dom.vStreamPill.textContent = 'Waiting for Sender';
+              dom.vStreamPill.textContent = label.waiting;
             }
             dom.vConnNote.textContent = `Room ${state.roomCode} · Listening (ack: false)`;
           } else if (ch === 'CONNECTING' || state.reconnectTimerId) {
@@ -2113,13 +2236,13 @@
               : 'Connecting…';
             dom.vChannel.className = 'stat-val warn';
             dom.vStreamPill.dataset.stream = 'stalled';
-            dom.vStreamPill.textContent = 'Reconnecting…';
+            dom.vStreamPill.textContent = label.connecting;
           } else {
             badge.dataset.state = 'red';
             badgeText.textContent = ch === 'IDLE' ? 'Disconnected' : ch.replace('_', ' ');
             dom.vChannel.className = 'stat-val bad';
             dom.vStreamPill.dataset.stream = 'offline';
-            dom.vStreamPill.textContent = 'Disconnected';
+            dom.vStreamPill.textContent = label.disconnected;
           }
         }
       }
@@ -3120,7 +3243,7 @@
         dom.viewSelector.hidden = true;
         dom.viewSender.hidden = true;
         dom.viewViewer.hidden = false;
-        document.title = 'Viewer · GyroLink';
+        document.title = state.diePage ? 'Die' : 'Viewer · GyroLink';
         clearModeAlert();
 
         resetViewerTelemetry();
@@ -3148,7 +3271,7 @@
           resetViewerTelemetry(); // Different room: drop stats and calibration from the old one
         }
         setRoomInUrl(code);
-        document.title = `Viewer · ${code} · GyroLink`;
+        document.title = state.diePage ? 'Die' : `Viewer · ${code} · GyroLink`;
 
         const creds = getCredentials();
         if (!validateCredentials(creds.url, creds.key).ok) {
@@ -3375,7 +3498,10 @@
           purgedSecret = true;
         }
 
-        const { incomingRoom, credsImported } = ingestCredentialsFromUrl();
+        const { incomingRoom, credsImported, diePage } = ingestCredentialsFromUrl();
+        const opensRoom = incomingRoom.length === 4;
+        state.diePage = diePage && opensRoom; // view=die without a valid room opens the normal app
+        if (state.diePage) dom.appShell.dataset.page = 'die';
         syncSettingsUI();
 
         if (purgedSecret) {
@@ -3385,15 +3511,16 @@
         }
 
         if (credsImported) {
-          showToast('Supabase settings loaded from link');
+          if (!state.diePage) showToast('Supabase settings loaded from link');
           dom.settingsPanel.open = false;
         }
 
         dom.btnCopyLink.textContent = typeof navigator.share === 'function' ? 'Share Link' : 'Copy Link';
-        applyViewerModel(localStorage.getItem(STORAGE_KEYS.model));
+        // The die page always shows the die, without changing this phone's saved Viewer choice
+        applyViewerModel(state.diePage ? 'die' : localStorage.getItem(STORAGE_KEYS.model));
 
         // A pairing link (?room=XXXX) opens Viewer mode and joins the Sender's room
-        if (incomingRoom && incomingRoom.length === 4) {
+        if (opensRoom) {
           enterViewerMode(incomingRoom);
         } else {
           updateHealthUI();

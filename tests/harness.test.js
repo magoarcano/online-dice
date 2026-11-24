@@ -208,7 +208,7 @@ function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30,
   });
   vm.runInContext(code, ctx);
   return {
-    els, mock, wake, store, qr, shares, prompts, location,
+    els, mock, wake, store, qr, shares, prompts, location, doc: document,
     text: id => els[id] && els[id].textContent,
     fireWin: (t, ev) => Promise.all((winListeners[t] || []).map(fn => fn(ev || {}))),
     fireDoc: t => Promise.all((docListeners[t] || []).map(fn => fn({}))),
@@ -554,6 +554,61 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     check('die choice is remembered on reload', t2.els['v-stage'].dataset.model === 'die', t2.els['v-stage'].dataset.model);
     await t2.els['btn-model-phone'].fire('click');
     check('Phone button switches back and saves the choice', t2.els['v-stage'].dataset.model === 'phone' && store.get('gyrolink_viewer_model') === 'phone');
+  }
+
+  // 10. Die page: the Viewer with only the die, the top number and the status
+  {
+    const shell = p => (p.els['app-shell'] || { dataset: {} }).dataset; // undefined until the script looks it up
+    const creds = () => new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const server = createServer();
+    const sender = boot({ server });
+    await sender.els['btn-choose-sender'].fire('click');
+    await sleep(100);
+    const room = sender.text('s-room-code');
+    const store = creds();
+    const d = boot({ server, store, search: `?room=${room}&view=die` });
+    await sleep(150);
+    check('die link opens the die page', shell(d).page === 'die' && d.text('health-badge-text') === 'Connected', `${shell(d).page} ${d.text('health-badge-text')}`);
+    check('die page forces the die without saving it', d.els['v-stage'].dataset.model === 'die' && !store.has('gyrolink_viewer_model'), d.els['v-stage'].dataset.model);
+    check('die page title hides the room', d.doc.title === 'Die', d.doc.title);
+    check('die page keeps room and view in the URL for reloads', d.location.search === `?room=${room}&view=die`, d.location.search);
+    check('die page status: Waiting for the die', d.text('v-stream-pill') === 'Waiting for the die', d.text('v-stream-pill'));
+    check('sender counts the die page as a viewer', sender.text('s-viewers') === '1', sender.text('s-viewers'));
+    check('die page keeps the screen on', d.wake.requested === 1, `requests=${d.wake.requested}`);
+
+    await sender.els['btn-toggle-stream'].fire('click');
+    await sender.fireWin('deviceorientation', { alpha: 0, beta: 90, gamma: 0 });
+    await sleep(350);
+    check('die page shows Live and the top face', d.text('v-stream-pill') === 'Live' && d.text('v-die-top') === '2', `${d.text('v-stream-pill')} ${d.text('v-die-top')}`);
+    await sender.els['btn-toggle-stream'].fire('click');
+    await sleep(700);
+    check('die page status: Weak signal', d.text('v-stream-pill') === 'Weak signal', d.text('v-stream-pill'));
+    await sleep(1600);
+    check('die page status: Signal lost', d.text('v-stream-pill') === 'Signal lost', d.text('v-stream-pill'));
+
+    // The normal Viewer on the same phone is untouched
+    const v = boot({ server, store, search: `?room=${room}` });
+    await sleep(150);
+    check('normal Viewer after the die page: own model, own wording', shell(v).page !== 'die' && v.els['v-stage'].dataset.model === 'phone' && v.text('v-stream-pill') === 'Waiting for Sender', `${v.els['v-stage'].dataset.model} ${v.text('v-stream-pill')}`);
+
+    // view=die needs a valid room
+    for (const search of ['?view=die', '?room=ab&view=die']) {
+      const x = boot({ search });
+      check(`${search} opens the normal app`, shell(x).page !== 'die' && x.text('health-badge-text') === 'Idle', x.text('health-badge-text'));
+    }
+
+    // No credentials: settings only, then join after saving
+    const empty = boot({ store: new Map(), search: '?room=AB12&view=die' });
+    await sleep(50);
+    check('die page without credentials shows only the settings', shell(empty).setup === 'needed' && empty.els['settings-panel'].open === true && empty.mock.created === 0, `${shell(empty).setup} open=${empty.els['settings-panel'].open}`);
+    empty.els['cfg-url'].value = 'https://abc.supabase.co';
+    empty.els['cfg-key'].value = ANON;
+    await empty.els['settings-form'].fire('submit');
+    await sleep(100);
+    check('saving settings on the die page joins and hides them', shell(empty).setup === 'done' && empty.mock.channels[0] && empty.mock.channels[0].topic === 'realtime:gyrolink-room-AB12', `${shell(empty).setup}`);
+
+    for (const p of [d, v, empty]) await p.els['btn-viewer-back'].fire('click'); // stop watchdogs
+    await sender.els['btn-sender-back'].fire('click');
   }
 
   check('no unhandled promise rejections', unhandled.length === 0, unhandled.join('; '));
