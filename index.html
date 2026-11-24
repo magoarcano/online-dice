@@ -890,7 +890,8 @@
       color: var(--accent-cyan);
     }
 
-    .phone-3d {
+    /* Rotating model (phone or die). Its local axes are the Sender's device axes. */
+    .model-3d {
       width: 112px;
       height: 196px;
       position: relative;
@@ -901,9 +902,20 @@
     }
 
     @media (prefers-reduced-motion: no-preference) {
-      .phone-3d {
+      .model-3d {
         transition: transform 95ms linear;
       }
+    }
+
+    .stage-container[data-model="die"] .model-3d {
+      width: var(--die-size);
+      height: var(--die-size);
+    }
+
+    .stage-container[data-model="die"] .phone-face,
+    .stage-container:not([data-model="die"]) .die-face,
+    .stage-container:not([data-model="die"]) .die-top-readout {
+      display: none;
     }
 
     .phone-face {
@@ -1005,6 +1017,126 @@
       font-size: 0.66rem;
       letter-spacing: 0.14em;
       color: #94a3b8;
+    }
+
+    /* Die model: one face per side of the phone, in device axes (x right, y toward the top edge, z out of the screen) */
+    .stage-container {
+      --die-size: 100px;
+    }
+
+    .die-face {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+      padding: 14px;
+      border-radius: 14px;
+      background: radial-gradient(circle at 30% 25%, #ffffff, #e2e8f0 65%, #cbd5e1);
+      box-shadow:
+        inset 0 0 0 2px rgba(100, 116, 139, 0.55),
+        inset 0 -8px 16px rgba(15, 23, 42, 0.16);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .die-1 { transform: translateZ(calc(var(--die-size) / 2)); }                 /* FRONT (screen) */
+    .die-6 { transform: rotateY(180deg) translateZ(calc(var(--die-size) / 2)); } /* BACK */
+    .die-3 { transform: rotateY(90deg) translateZ(calc(var(--die-size) / 2)); }  /* RIGHT */
+    .die-4 { transform: rotateY(-90deg) translateZ(calc(var(--die-size) / 2)); } /* LEFT */
+    .die-2 { transform: rotateX(90deg) translateZ(calc(var(--die-size) / 2)); }  /* TOP edge */
+    .die-5 { transform: rotateX(-90deg) translateZ(calc(var(--die-size) / 2)); } /* BOTTOM edge */
+
+    .pip {
+      width: 17px;
+      height: 17px;
+      place-self: center;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #475569, #020617 70%);
+    }
+
+    .die-1 .pip {
+      width: 24px;
+      height: 24px;
+    }
+
+    .pip.tl { grid-area: 1 / 1; }
+    .pip.tr { grid-area: 1 / 3; }
+    .pip.ml { grid-area: 2 / 1; }
+    .pip.c { grid-area: 2 / 2; }
+    .pip.mr { grid-area: 2 / 3; }
+    .pip.bl { grid-area: 3 / 1; }
+    .pip.br { grid-area: 3 / 3; }
+
+    .stage-overlay-bottom {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 10px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .model-toggle {
+      pointer-events: auto;
+      display: inline-flex;
+      gap: 2px;
+      padding: 3px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .model-toggle-btn {
+      appearance: none;
+      min-block-size: 34px;
+      padding: 4px 14px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .model-toggle-btn[aria-pressed="true"] {
+      background: var(--accent-cyan-bg);
+      color: var(--accent-cyan);
+    }
+
+    .die-top-readout {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      line-height: 1;
+    }
+
+    .die-top-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .die-top-value {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 4.5rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      text-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+      transition: opacity 150ms linear;
+    }
+
+    /* A stale number is dimmed while the stream isn't live */
+    .stage-container:has(.stream-pill:not([data-stream="live"])) .die-top-value {
+      opacity: 0.4;
     }
 
     /* Footer / Connection Controls */
@@ -1376,14 +1508,14 @@
 
           <div id="viewer-alert" class="banner banner-error" role="alert" hidden></div>
 
-          <!-- 3D Rotating Phone Stage -->
-          <div class="stage-container" aria-label="3D phone orientation visualization">
+          <!-- 3D Rotating Stage: phone or die (data-model) -->
+          <div id="v-stage" class="stage-container" data-model="phone" aria-label="3D orientation visualization">
             <div class="stage-overlay-top">
               <span id="v-stream-pill" class="stream-pill" data-stream="waiting">Waiting for Sender</span>
               <span id="v-hz-chip" class="hz-chip">0.0 Hz</span>
             </div>
 
-            <div id="phone-3d" class="phone-3d" style="--rx: 0deg; --ry: 0deg; --rz: 0deg;" aria-hidden="true">
+            <div id="model-3d" class="model-3d" style="--rx: 0deg; --ry: 0deg; --rz: 0deg;" aria-hidden="true">
               <div class="phone-face phone-front">
                 <div class="phone-notch"></div>
                 <div class="phone-screen-core">
@@ -1404,6 +1536,24 @@
                   <span class="phone-lens"></span>
                 </div>
                 <span class="phone-back-label">BACK</span>
+              </div>
+              <!-- Die: front 1, back 6, right 3, left 4, top edge 2, bottom edge 5 -->
+              <div class="die-face die-1"><span class="pip c"></span></div>
+              <div class="die-face die-6"><span class="pip tl"></span><span class="pip tr"></span><span class="pip ml"></span><span class="pip mr"></span><span class="pip bl"></span><span class="pip br"></span></div>
+              <div class="die-face die-3"><span class="pip tr"></span><span class="pip c"></span><span class="pip bl"></span></div>
+              <div class="die-face die-4"><span class="pip tl"></span><span class="pip tr"></span><span class="pip bl"></span><span class="pip br"></span></div>
+              <div class="die-face die-2"><span class="pip tr"></span><span class="pip bl"></span></div>
+              <div class="die-face die-5"><span class="pip tl"></span><span class="pip tr"></span><span class="pip c"></span><span class="pip bl"></span><span class="pip br"></span></div>
+            </div>
+
+            <div class="stage-overlay-bottom">
+              <div class="model-toggle" role="group" aria-label="3D model">
+                <button type="button" id="btn-model-phone" class="model-toggle-btn" aria-pressed="true">Phone</button>
+                <button type="button" id="btn-model-die" class="model-toggle-btn" aria-pressed="false">Die</button>
+              </div>
+              <div class="die-top-readout">
+                <span class="die-top-label">On Top</span>
+                <span id="v-die-top" class="die-top-value" aria-live="polite">—</span>
               </div>
             </div>
           </div>
@@ -1513,6 +1663,7 @@
         url: 'gyrolink_supabase_url',
         key: 'gyrolink_supabase_anon_key',
         room: 'gyrolink_sender_room', // Sender keeps its room across reloads so Viewers stay paired
+        model: 'gyrolink_viewer_model', // Viewer's 3D model: 'phone' | 'die'
       };
       const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
       const SEND_INTERVAL_MS = 100;         // Strictly 10 Hz
@@ -1523,6 +1674,17 @@
       const LEAVE_TIMEOUT_MS = 1500;        // Max wait for a channel leave before reconnecting
       const GRAVITY = 9.81;                 // m/s², used by the simulated accelerometer
       const PEAK_HOLD_MS = 1000;            // Displayed acceleration peak is held this long
+      // Die face on each side of the phone, as [device axis, sign]. W3C axes: 0 = x (right),
+      // 1 = y (toward the top edge), 2 = z (out of the screen). Opposite faces add up to 7.
+      const DIE_FACES = {
+        1: [2, 1],  // FRONT (screen)
+        6: [2, -1], // BACK
+        3: [0, 1],  // RIGHT
+        4: [0, -1], // LEFT
+        2: [1, 1],  // TOP edge
+        5: [1, -1], // BOTTOM edge
+      };
+      const DIE_HYSTERESIS = 0.08;          // ≈ ±3° around an edge, so the top number doesn't flicker
 
       // =========================================================================
       // 3. APPLICATION STATE
@@ -1572,6 +1734,7 @@
         calibration: null, // null or { a, b, g }
         displayAngles: { rx: 0, ry: 0, rz: 0 },
         hasDisplayInit: false,
+        dieTop: null, // Die face currently on top (1-6), null before the first packet
         peakHold: { v: null, t: 0 }, // Displayed acceleration peak (Sender or Viewer, whichever is active)
         toastTimerId: null,
       };
@@ -1643,7 +1806,11 @@
         viewerAlert: document.getElementById('viewer-alert'),
         vStreamPill: document.getElementById('v-stream-pill'),
         vHzChip: document.getElementById('v-hz-chip'),
-        phone3d: document.getElementById('phone-3d'),
+        vStage: document.getElementById('v-stage'),
+        model3d: document.getElementById('model-3d'),
+        btnModelPhone: document.getElementById('btn-model-phone'),
+        btnModelDie: document.getElementById('btn-model-die'),
+        vDieTop: document.getElementById('v-die-top'),
         btnCalibrate: document.getElementById('btn-calibrate'),
         btnResetCal: document.getElementById('btn-reset-cal'),
         vAlpha: document.getElementById('v-alpha'),
@@ -2576,7 +2743,7 @@
       }
 
       // =========================================================================
-      // 11. ROOM PAIRING (SENDER HOSTS) & VIEWER MODE: 3D MIRROR, CALIBRATION & WATCHDOG
+      // 11. ROOM PAIRING (SENDER HOSTS) & VIEWER MODE: 3D MIRROR, DIE, CALIBRATION & WATCHDOG
       // =========================================================================
       function buildPairingUrl(includeCreds) {
         const url = new URL(window.location.href);
@@ -2712,9 +2879,43 @@
           state.displayAngles.rz += wrapDelta180(targetRz - state.displayAngles.rz);
         }
 
-        dom.phone3d.style.setProperty('--rx', `${state.displayAngles.rx.toFixed(1)}deg`);
-        dom.phone3d.style.setProperty('--ry', `${state.displayAngles.ry.toFixed(1)}deg`);
-        dom.phone3d.style.setProperty('--rz', `${state.displayAngles.rz.toFixed(1)}deg`);
+        dom.model3d.style.setProperty('--rx', `${state.displayAngles.rx.toFixed(1)}deg`);
+        dom.model3d.style.setProperty('--ry', `${state.displayAngles.ry.toFixed(1)}deg`);
+        dom.model3d.style.setProperty('--rz', `${state.displayAngles.rz.toFixed(1)}deg`);
+
+        // Die readout uses the same (calibrated) pose as the model, so the number matches what's drawn
+        state.dieTop = state.hasReceivedPacket ? dieTopFace(b, g, state.dieTop) : null;
+        const topText = state.dieTop === null ? '—' : String(state.dieTop);
+        if (dom.vDieTop.textContent !== topText) dom.vDieTop.textContent = topText; // aria-live: announce changes only
+      }
+
+      // The die face pointing most nearly up. How far each device axis points up (earth +Z) is the
+      // bottom row of the W3C rotation matrix: [-cos β sin γ, sin β, cos β cos γ]. Alpha spins
+      // about the vertical, so it never changes the top face. The current face is kept until
+      // another one is clearly higher (DIE_HYSTERESIS).
+      function dieTopFace(b, g, current) {
+        const rb = (b * Math.PI) / 180;
+        const rg = (g * Math.PI) / 180;
+        const up = [-Math.cos(rb) * Math.sin(rg), Math.sin(rb), Math.cos(rb) * Math.cos(rg)];
+        const height = n => up[DIE_FACES[n][0]] * DIE_FACES[n][1];
+        let best = 1;
+        for (const n of [2, 3, 4, 5, 6]) {
+          if (height(n) > height(best)) best = n;
+        }
+        if (DIE_FACES[current] && height(best) - height(current) < DIE_HYSTERESIS) return current;
+        return best;
+      }
+
+      function applyViewerModel(model) {
+        const m = model === 'die' ? 'die' : 'phone';
+        dom.vStage.dataset.model = m;
+        dom.btnModelPhone.setAttribute('aria-pressed', String(m === 'phone'));
+        dom.btnModelDie.setAttribute('aria-pressed', String(m === 'die'));
+      }
+
+      function setViewerModel(model) {
+        localStorage.setItem(STORAGE_KEYS.model, model);
+        applyViewerModel(model);
       }
 
       function handleIncomingGyroPacket(payload) {
@@ -3109,6 +3310,9 @@
         showToast('Calibrated neutral center');
       });
 
+      dom.btnModelPhone.addEventListener('click', () => setViewerModel('phone'));
+      dom.btnModelDie.addEventListener('click', () => setViewerModel('die'));
+
       dom.btnResetCal.addEventListener('click', () => {
         state.calibration = null;
         dom.btnResetCal.hidden = true;
@@ -3185,6 +3389,7 @@
         }
 
         dom.btnCopyLink.textContent = typeof navigator.share === 'function' ? 'Share Link' : 'Copy Link';
+        applyViewerModel(localStorage.getItem(STORAGE_KEYS.model));
 
         // A pairing link (?room=XXXX) opens Viewer mode and joins the Sender's room
         if (incomingRoom && incomingRoom.length === 4) {

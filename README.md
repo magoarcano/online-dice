@@ -5,7 +5,7 @@ Stream live gyroscope (device orientation) and accelerometer data from one phone
 **Live:** https://magoarcano.github.io/online-dice/
 
 - **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma) and `DeviceMotionEvent` (acceleration), and broadcasts the latest reading every 100 ms.
-- **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, shows the acceleration, and has rate, jitter, packet-age and dropped-packet stats.
+- **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, or a die with a big readout of the number on top, shows the acceleration, and has rate, jitter, packet-age and dropped-packet stats.
 
 The whole app is one static file, `index.html`, with no build step. (The repo is named `online-dice` for historical reasons; the app is GyroLink.)
 
@@ -68,7 +68,8 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Pairing:** the Sender creates, saves and reuses its room, **New** moves rooms, and the QR code and share link carry the room and credentials. Links open Viewer mode, typed codes are cleaned up and validated, and `?room=` is kept for reloads.
 - **One Sender, many Viewers:** two Viewers both receive the stream, and the Sender counts 2, then 1 when one leaves.
 - **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects, and presence is re-tracked. Switch Mode during an in-flight connect leaves no stray channel. Tapping Start doesn't restart the Sender's auto-connect.
-- **3D mirror:** feeds poses through the Viewer and compares the actual `.phone-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
+- **3D mirror:** feeds poses through the Viewer and compares the actual `.model-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
+- **Die:** the `.die-N` faces (parsed from `index.html`) sit on the specified sides, the big number is right for each side resting up and matches the face the drawn die points at the camera across 120 poses, it doesn't flicker near an edge, Calibrate re-zeroes it, and the Phone / Die choice is saved.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
 - **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, iOS signs flipped to the W3C convention, and simulated gravity matching the simulated tilt.
 - **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
@@ -106,8 +107,9 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 - Joins with `joinViewerRoom()` from a pairing link or a typed code. Until it has joined, the badge shows **Not Joined**. Switching rooms resets its stats and calibration.
 - Renders each packet as it arrives. A watchdog every 120 ms marks the stream **Stalled** after 500 ms without packets and **Sender Offline** after 2000 ms.
 - **Jitter** is the mean absolute deviation from 100 ms over the last 25 gaps between packets. **Drops** are counted from gaps in `seq`; a lower `seq` means the Sender restarted, which resets the count.
-- **3D model:** `rotateZ(-α) rotateX(-β) rotateY(γ)`. That's the W3C intrinsic Z-X′-Y″ order, adjusted for CSS's downward Y axis, with the camera looking down at a phone lying flat. The angles are unwrapped so the CSS transition never spins the long way around through 360°.
+- **3D model:** `rotateZ(-α) rotateX(-β) rotateY(γ)` on `.model-3d`. That's the W3C intrinsic Z-X′-Y″ order, adjusted for CSS's downward Y axis, with the camera looking down at a phone lying flat. The angles are unwrapped so the CSS transition never spins the long way around through 360°.
 - **Acceleration:** each axis card shows acceleration without gravity, with the with-gravity value underneath. **Peak** holds the highest `pk` for 1 s so a short tap stays readable. Malformed values show `—`. Calibrate doesn't affect acceleration.
+- **Die:** the **Phone / Die** toggle on the stage swaps the model, and the choice is saved under `gyrolink_viewer_model`. The die's faces follow the phone's sides: screen **1**, back **6**, right **3**, left **4**, top edge **2**, bottom edge **5**. **On Top** shows, in big, the face pointing most nearly up: the largest entry of the W3C rotation matrix's bottom row `[-cos β sin γ, sin β, cos β cos γ]`, signed per face. Alpha doesn't change it. It uses the same calibrated pose as the model, keeps the current face until another is about 3° past the 45° edge (`DIE_HYSTERESIS`), shows `—` before the first packet, and dims while the stream isn't Live.
 - **Calibrate** subtracts each angle separately. That's approximate and fine for small tilts, but it distorts at large ones.
 
 ### Reconnection (script section 8: `connectToRoom`)
@@ -123,7 +125,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
+`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, die & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
 
 ---
 
@@ -158,3 +160,4 @@ This matters because `client.channel(topic)` **returns any existing channel with
 4. Leave the Viewer untouched for over 1 minute. The screen stays on (wake lock).
 5. Paste a `service_role` key into settings. It's rejected.
 6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
+7. Switch the Viewer to **Die**. Lay the Sender flat, screen up: **On Top** reads 1, and the die shows its 1 face. Screen down: 6. Stand it on its bottom edge: 2. On its top edge: 5. Right edge up: 3. Left edge up: 4. Reload the Viewer: it stays on Die.

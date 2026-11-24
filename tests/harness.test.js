@@ -21,8 +21,8 @@ const inlineScripts = [...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(
 if (inlineScripts.length !== 1) throw new Error(`expected 1 inline <script>, found ${inlineScripts.length}`);
 const code = inlineScripts[0];
 
-const transformMatch = /\.phone-3d\s*\{[^}]*?transform:\s*([^;]+);/.exec(html);
-if (!transformMatch) throw new Error('could not find the .phone-3d transform rule');
+const transformMatch = /\.model-3d\s*\{[^}]*?transform:\s*([^;]+);/.exec(html);
+if (!transformMatch) throw new Error('could not find the .model-3d transform rule');
 // e.g. [['Z','rz'], ['X','rx'], ['Y','ry']] in the order CSS composes them
 const cssRotations = [...transformMatch[1].matchAll(/rotate([XYZ])\(var\(--(r[xyz])/g)].map(m => [m[1], m[2]]);
 
@@ -80,6 +80,7 @@ function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30,
       id, textContent: '', hidden: false, className: '', value: '', checked: id === 'chk-include-creds',
       type: id === 'cfg-key' ? 'password' : 'text', open: false, innerHTML: '', dataset: {},
       style: { setProperty(k, v) { this[k] = v; } },
+      attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); },
       classList: { add() {}, remove() {} },
       addEventListener(t, fn) { (listeners[t] ||= []).push(fn); },
       fire(t, ev = {}) { return Promise.all((listeners[t] || []).map(fn => fn({ preventDefault() {}, ...ev }))); },
@@ -228,10 +229,24 @@ const maxDiff = (A, B) => Math.max(...A.flat().map((v, i) => Math.abs(v - B.flat
 // W3C DeviceOrientation: intrinsic Z-X'-Y'' = Rz(alpha)·Rx(beta)·Ry(gamma), right-handed (x right, y top, z out
 // of screen). Camera looks down at a flat phone, so in CSS coordinates the expected matrix is S·R·S.
 const expectedCssMatrix = (a, b, g) => mul(mul(FLIP_Y, mul(mul(R.Z(rad(a)), R.X(rad(b))), R.Y(rad(g)))), FLIP_Y);
-// What the page actually renders: the .phone-3d rotate list (in CSS order) with the --rx/--ry/--rz the script set
+// What the page actually renders: the .model-3d rotate list (in CSS order) with the --rx/--ry/--rz the script set
 const renderedCssMatrix = style => cssRotations
   .map(([axis, v]) => R[axis](rad(parseFloat(style[`--${v}`]))))
   .reduce((acc, m) => mul(acc, m));
+// Die faces as drawn: each `.die-N { transform: rotate…(θ) translateZ(…) }` rule, turned into the face's outward
+// normal in the model's CSS axes (the rule's rotations applied to (0, 0, 1))
+const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+const dieFaceNormals = Object.fromEntries([...html.matchAll(/\.die-(\d)\s*\{\s*transform:\s*([^;]+);/g)].map(([, n, t]) => {
+  const m = [...t.matchAll(/rotate([XYZ])\((-?[\d.]+)deg\)/g)].reduce((acc, [, axis, deg]) => mul(acc, R[axis](rad(+deg))), I3);
+  return [n, m.map(row => row[2])];
+}));
+// Height of each drawn face's normal once the model is rotated: CSS z points at the camera, i.e. up
+const drawnFaceHeights = style => {
+  const M = renderedCssMatrix(style);
+  return Object.entries(dieFaceNormals)
+    .map(([n, v]) => [n, M[2].reduce((s, m, i) => s + m * v[i], 0)])
+    .sort((x, y) => y[1] - x[1]);
+};
 
 // --- Tests -----------------------------------------------------------------------------------
 const results = [];
@@ -289,7 +304,7 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     let worst = 0;
     for (const [a, b, g] of poses) {
       ch.handlers.broadcast[0]({ payload: { a, b, g, seq: 1, ts: Date.now() } });
-      worst = Math.max(worst, maxDiff(renderedCssMatrix(t.els['phone-3d'].style), expectedCssMatrix(a, b, g)));
+      worst = Math.max(worst, maxDiff(renderedCssMatrix(t.els['model-3d'].style), expectedCssMatrix(a, b, g)));
     }
     check('3D transform matches W3C Z-X\'-Y\'\' orientation', worst < 1e-9, `max matrix error=${worst.toExponential(2)}`);
 
@@ -488,6 +503,57 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     check('simulated acceleration includes gravity matching the simulated tilt', err < 0.05, `max error=${err} ${JSON.stringify(p)}`);
     await t.els['btn-toggle-stream'].fire('click');
     await t.els['btn-sender-back'].fire('click');
+  }
+
+  // 9. Die model: faces where the spec puts them, and the big number is the face the drawn die has on top
+  {
+    // Model CSS axes: x right, y down (the phone's top edge is -y), z out of the screen
+    const want = { 1: [0, 0, 1], 6: [0, 0, -1], 3: [1, 0, 0], 4: [-1, 0, 0], 2: [0, -1, 0], 5: [0, 1, 0] };
+    const placed = Object.keys(dieFaceNormals).length === 6 && Object.keys(want).every(n =>
+      dieFaceNormals[n] && dieFaceNormals[n].every((v, i) => Math.abs(v - want[n][i]) < 1e-9));
+    check('die faces: front 1, back 6, right 3, left 4, top 2, bottom 5', placed, JSON.stringify(dieFaceNormals));
+
+    const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const t = boot({ search: '?room=AB12', store });
+    await sleep(100);
+    const stage = t.els['v-stage'];
+    const pressed = () => `${t.els['btn-model-phone'].attrs['aria-pressed']},${t.els['btn-model-die'].attrs['aria-pressed']}`;
+    check('viewer shows the phone by default', stage.dataset.model === 'phone' && pressed() === 'true,false', `${stage.dataset.model} ${pressed()}`);
+    await t.els['btn-model-die'].fire('click');
+    check('Die button switches to the die and saves the choice', stage.dataset.model === 'die' && pressed() === 'false,true' && store.get('gyrolink_viewer_model') === 'die', `${stage.dataset.model} ${pressed()}`);
+    check('top number is — before any packet', t.text('v-die-top') === '—', t.text('v-die-top'));
+
+    const ch = t.mock.channels[0];
+    const send = (a, b, g) => ch.handlers.broadcast[0]({ payload: { a, b, g, seq: 1, ts: Date.now() } });
+    const top = (a, b, g) => (send(a, b, g), t.text('v-die-top'));
+    const sides = [[[0, 0, 0], '1'], [[0, 180, 0], '6'], [[0, 90, 0], '2'], [[0, -90, 0], '5'], [[0, 0, -80], '3'], [[0, 0, 80], '4'], [[217, 85, 20], '2'], [[40, -170, 5], '6']];
+    const got = sides.map(([pose]) => top(...pose));
+    check('top number for each side resting up', got.join() === sides.map(s => s[1]).join(), got.join());
+
+    // Across many poses, the number is the face the drawn die points at the camera (skip poses within the hysteresis band)
+    let tested = 0;
+    const mismatches = [];
+    for (const a of [0, 135, 290]) for (const b of [-170, -120, -60, -20, 20, 60, 120, 170]) for (const g of [-75, -30, 0, 30, 75]) {
+      send(a, b, g);
+      const [[drawn, h1], [, h2]] = drawnFaceHeights(t.els['model-3d'].style);
+      if (h1 - h2 < 0.1) continue;
+      tested++;
+      if (t.text('v-die-top') !== drawn) mismatches.push(`${a}/${b}/${g}: shows ${t.text('v-die-top')}, drawn ${drawn}`);
+    }
+    check('top number matches the face the drawn die has on top', tested > 60 && mismatches.length === 0, `tested=${tested} ${mismatches.slice(0, 3).join('; ')}`);
+
+    const band = [44, 47, 50, 43, 40].map(b => top(0, b, 0)).join();
+    check('top number holds near an edge (no flicker)', band === '1,1,2,2,1', band);
+
+    send(0, 90, 0);
+    await t.els['btn-calibrate'].fire('click');
+    check('calibrate re-zeroes the die like the model', t.text('v-die-top') === '1', t.text('v-die-top'));
+    await t.els['btn-viewer-back'].fire('click');
+
+    const t2 = boot({ store });
+    check('die choice is remembered on reload', t2.els['v-stage'].dataset.model === 'die', t2.els['v-stage'].dataset.model);
+    await t2.els['btn-model-phone'].fire('click');
+    check('Phone button switches back and saves the choice', t2.els['v-stage'].dataset.model === 'phone' && store.get('gyrolink_viewer_model') === 'phone');
   }
 
   check('no unhandled promise rejections', unhandled.length === 0, unhandled.join('; '));
