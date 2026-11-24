@@ -1,0 +1,11 @@
+{
+  "name": "gyrolink",
+  "private": true,
+  "description": "Dev-only: test runner. The app itself is index.html with no build step and no dependencies.",
+  "scripts": {
+    "test": "node tests/harness.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

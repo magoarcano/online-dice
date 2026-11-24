@@ -56,6 +56,20 @@ python3 -m http.server 8000      # then open http://localhost:8000
 
 **Deployment:** GitHub Pages serves the root of `main`, with HTTPS enforced. Every push to `main` goes live.
 
+### Tests
+
+```sh
+npm test        # same as: node tests/harness.test.js   (Node 18+, no dependencies, ~5 s)
+```
+
+`tests/harness.test.js` runs the page's **real inline script** in a Node `vm` sandbox with a fake DOM and a mock Supabase client. The mock copies the realtime-js 2.119.2 behaviors the reconnect logic depends on: same-topic channel reuse, async leave, and throwing on a second `subscribe`. It covers:
+- **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects. Switch Mode during an in-flight connect leaves no stray channel. The QR-link auto-connect isn't restarted by tapping Start.
+- **3D mirror:** feeds poses through the Viewer and compares the actual `.phone-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
+- **Sending:** no packets before the first sensor reading, and payloads carry the reading.
+- **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
+
+It can't cover real browsers, sensors or Supabase; use the manual checklist below for those. `package.json` exists only for `npm test`, and the app has no build step.
+
 **Credentials in code (optional):** `SUPABASE_URL` / `SUPABASE_ANON_KEY` at the top of the script are fallbacks used when nothing is saved in `localStorage`. This repo is public, so prefer the in-app settings panel over committing a key.
 
 ---
@@ -102,7 +116,8 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ## Rules for future changes
 
-- **supabase-js is pinned to `2.119.2`** (UMD from jsDelivr). The reconnect logic depends on this version's same-topic channel reuse and leave behavior. Re-test reconnection before bumping it.
+- Run `npm test` before pushing. Pushing to `main` deploys.
+- **supabase-js is pinned to `2.119.2`** (UMD from jsDelivr). The reconnect logic depends on this version's same-topic channel reuse and leave behavior. Before bumping it, check those behaviors in the new realtime-js source, update the mock in `tests/harness.test.js` if they changed, and re-test reconnection on real phones.
 - Keep it **one static file with no build step**. Dependencies come from CDNs: supabase-js and `qrcodejs@1.0.0`.
 - **No database writes.** Use Broadcast only. Don't switch to Postgres Changes or "Broadcast from Database".
 - Never let a secret key into `localStorage`, a QR code or a link. Route all key checks through `validateCredentials`.
@@ -115,12 +130,11 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ## Known gaps / TODO
 
-- [ ] Check the 3D tilt directions on real devices. The math matches the spec, but no real devices have been tested yet.
+- [ ] Check the 3D tilt directions on real devices. `npm test` checks the math against the spec, but no real devices have been tested yet.
 - [ ] Calibration uses per-angle subtraction; quaternions would be correct at large tilts.
 - [ ] The Sender can't tell whether a Viewer is connected. Realtime Presence could show it.
 - [ ] Two Senders in one room would interleave their packets and inflate the drop count.
 - [ ] URL validation accepts `http:`, but its error message says "must start with https://".
-- [ ] No automated tests are checked in. Reconnect, secret-key and send-gating behavior were verified with a throwaway Node harness that ran the real script against a mock realtime client.
 
 ### Manual test checklist
 1. Viewer: create a room, and the QR code renders. Sender: scan it and start streaming. The Viewer shows **Live** at about 10 Hz.
