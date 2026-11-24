@@ -766,6 +766,10 @@
       gap: 10px;
     }
 
+    .stat-tile.wide {
+      grid-column: 1 / -1;
+    }
+
     .stat-tile {
       background: var(--bg-input);
       border: 1px solid var(--border-subtle);
@@ -1154,7 +1158,7 @@
       <section id="view-selector" class="card" aria-labelledby="mode-heading">
         <div>
           <h2 id="mode-heading" class="section-heading">Choose Device Role</h2>
-          <p class="muted mt-1">Open Viewer on one phone to generate a room QR code, then scan with the Sender phone for 1-tap 10 Hz streaming.</p>
+          <p class="muted mt-1">Open Sender on the phone that moves to create a room, then scan its QR code (or open its shared link) on every Viewer. One Sender can stream to many Viewers.</p>
         </div>
 
         <div class="mode-grid">
@@ -1169,7 +1173,7 @@
             </span>
             <span class="mode-meta">
               <span class="mode-title">Send Gyroscope Data</span>
-              <span class="mode-desc">Stream live alpha, beta &amp; gamma at 10 Hz with Screen Wake Lock</span>
+              <span class="mode-desc">Host a room, share its QR code or link, and stream alpha, beta &amp; gamma at 10 Hz</span>
             </span>
           </button>
 
@@ -1184,7 +1188,7 @@
             </span>
             <span class="mode-meta">
               <span class="mode-title">View Live Data</span>
-              <span class="mode-desc">Create a 4-char room + QR code and mirror orientation in 3D</span>
+              <span class="mode-desc">Join a Sender's room by QR code, link or code and mirror it in 3D</span>
             </span>
           </button>
         </div>
@@ -1200,23 +1204,35 @@
           <button type="button" id="btn-sender-back" class="btn btn-sm btn-ghost">Switch Mode</button>
         </div>
 
-        <div class="field">
-          <label for="sender-room-input">4-Character Room Code</label>
-          <div class="input-row">
-            <input
-              id="sender-room-input"
-              class="room-code-input"
-              type="text"
-              maxlength="4"
-              inputmode="text"
-              placeholder="A7K9"
-              autocomplete="off"
-              autocapitalize="characters"
-              spellcheck="false"
-            >
-            <button type="button" id="btn-sender-join" class="btn flex-1">Connect Room</button>
+        <!-- Room Pairing: the Sender hosts the room; every Viewer joins it -->
+        <details id="pairing-panel" class="panel" open>
+          <summary>
+            <span>Room Pairing &amp; QR Code</span>
+            <span id="pairing-room-pill" class="summary-pill">----</span>
+          </summary>
+          <div class="panel-body">
+            <div class="room-hero">
+              <div>
+                <span class="stat-label">Room Code</span>
+                <div id="s-room-code" class="room-code-display">----</div>
+              </div>
+              <div class="row-sm">
+                <button type="button" id="btn-copy-link" class="btn btn-sm btn-primary">Copy Link</button>
+                <button type="button" id="btn-new-room" class="btn btn-sm">New</button>
+              </div>
+            </div>
+
+            <div class="qr-wrapper">
+              <div id="qr-container" class="qr-box" aria-label="QR code that opens Viewer mode for this room"></div>
+              <p id="qr-caption" class="muted text-center">Scan with each Viewer phone to join this room.</p>
+            </div>
+
+            <label class="checkbox-row" for="chk-include-creds">
+              <input id="chk-include-creds" type="checkbox" checked>
+              <span>Include Supabase credentials in QR &amp; link hash (1-tap setup)</span>
+            </label>
           </div>
-        </div>
+        </details>
 
         <button type="button" id="btn-toggle-stream" class="btn btn-primary btn-lg">
           <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -1255,6 +1271,10 @@
 
         <!-- Sender Telemetry Stats -->
         <div class="stats-grid">
+          <div class="stat-tile wide">
+            <span class="stat-label">Viewers Watching</span>
+            <span id="s-viewers" class="stat-val" aria-live="polite">—</span>
+          </div>
           <div class="stat-tile">
             <span class="stat-label">Send Rate</span>
             <span id="s-rate" class="stat-val">0.0 Hz</span>
@@ -1290,6 +1310,26 @@
             </h2>
             <button type="button" id="btn-viewer-back" class="btn btn-sm btn-ghost">Switch Mode</button>
           </div>
+
+          <!-- Join the Sender's room (QR code / link fill this in automatically) -->
+          <form id="viewer-join-form" class="field" novalidate>
+            <label for="viewer-room-input">Room Code from the Sender</label>
+            <div class="input-row">
+              <input
+                id="viewer-room-input"
+                class="room-code-input"
+                type="text"
+                maxlength="4"
+                inputmode="text"
+                placeholder="A7K9"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                enterkeyhint="go"
+              >
+              <button type="submit" id="btn-viewer-join" class="btn flex-1">Join Room</button>
+            </div>
+          </form>
 
           <div id="viewer-alert" class="banner banner-error" role="alert" hidden></div>
 
@@ -1377,36 +1417,6 @@
             <button type="button" id="btn-viewer-reconnect" class="btn btn-sm">Reconnect</button>
           </div>
         </div>
-
-        <!-- Collapsible Room Pairing & QR Code Card -->
-        <details id="pairing-panel" class="panel" open>
-          <summary>
-            <span>Room Pairing &amp; QR Code</span>
-            <span id="pairing-room-pill" class="summary-pill">----</span>
-          </summary>
-          <div class="panel-body">
-            <div class="room-hero">
-              <div>
-                <span class="stat-label">Room Code</span>
-                <div id="v-room-code" class="room-code-display">----</div>
-              </div>
-              <div class="row-sm">
-                <button type="button" id="btn-copy-link" class="btn btn-sm btn-primary">Copy Link</button>
-                <button type="button" id="btn-new-room" class="btn btn-sm">New</button>
-              </div>
-            </div>
-
-            <div class="qr-wrapper">
-              <div id="qr-container" class="qr-box" aria-label="QR code to open Sender mode for this room"></div>
-              <p id="qr-caption" class="muted text-center">Scan with the Sender phone to connect in one tap.</p>
-            </div>
-
-            <label class="checkbox-row" for="chk-include-creds">
-              <input id="chk-include-creds" type="checkbox" checked>
-              <span>Include Supabase credentials in QR &amp; link hash (1-tap setup)</span>
-            </label>
-          </div>
-        </details>
       </section>
     </main>
   </div>
@@ -1434,6 +1444,7 @@
       const STORAGE_KEYS = {
         url: 'gyrolink_supabase_url',
         key: 'gyrolink_supabase_anon_key',
+        room: 'gyrolink_sender_room', // Sender keeps its room across reloads so Viewers stay paired
       };
       const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
       const SEND_INTERVAL_MS = 100;         // Strictly 10 Hz
@@ -1459,6 +1470,9 @@
         reconnectCountdownId: null,
         connectGen: 0,                        // Bumped by every connect/disconnect; stale calls bail out
         channelTeardown: Promise.resolve(),   // Resolves once every detached channel has left
+        // Stable per tab, so a Viewer that reconnects is still counted once by the Sender
+        presenceKey: `viewer-${Math.random().toString(36).slice(2, 10)}`,
+        viewerCount: null,                    // Sender only: Viewers present in the room (null = unknown)
 
         // Sender state
         isStreaming: false,
@@ -1512,8 +1526,6 @@
         // Sender DOM
         viewSender: document.getElementById('view-sender'),
         btnSenderBack: document.getElementById('btn-sender-back'),
-        senderRoomInput: document.getElementById('sender-room-input'),
-        btnSenderJoin: document.getElementById('btn-sender-join'),
         btnToggleStream: document.getElementById('btn-toggle-stream'),
         btnToggleStreamLabel: document.getElementById('btn-toggle-stream-label'),
         senderAlert: document.getElementById('sender-alert'),
@@ -1531,10 +1543,21 @@
         sChannel: document.getElementById('s-channel'),
         sConnNote: document.getElementById('s-conn-note'),
         btnSenderReconnect: document.getElementById('btn-sender-reconnect'),
+        sViewers: document.getElementById('s-viewers'),
+        pairingPanel: document.getElementById('pairing-panel'),
+        pairingRoomPill: document.getElementById('pairing-room-pill'),
+        sRoomCode: document.getElementById('s-room-code'),
+        btnCopyLink: document.getElementById('btn-copy-link'),
+        btnNewRoom: document.getElementById('btn-new-room'),
+        qrContainer: document.getElementById('qr-container'),
+        qrCaption: document.getElementById('qr-caption'),
+        chkIncludeCreds: document.getElementById('chk-include-creds'),
 
         // Viewer DOM
         viewViewer: document.getElementById('view-viewer'),
         btnViewerBack: document.getElementById('btn-viewer-back'),
+        viewerJoinForm: document.getElementById('viewer-join-form'),
+        viewerRoomInput: document.getElementById('viewer-room-input'),
         viewerAlert: document.getElementById('viewer-alert'),
         vStreamPill: document.getElementById('v-stream-pill'),
         vHzChip: document.getElementById('v-hz-chip'),
@@ -1556,14 +1579,6 @@
         vChannel: document.getElementById('v-channel'),
         vConnNote: document.getElementById('v-conn-note'),
         btnViewerReconnect: document.getElementById('btn-viewer-reconnect'),
-        pairingPanel: document.getElementById('pairing-panel'),
-        pairingRoomPill: document.getElementById('pairing-room-pill'),
-        vRoomCode: document.getElementById('v-room-code'),
-        btnCopyLink: document.getElementById('btn-copy-link'),
-        btnNewRoom: document.getElementById('btn-new-room'),
-        qrContainer: document.getElementById('qr-container'),
-        qrCaption: document.getElementById('qr-caption'),
-        chkIncludeCreds: document.getElementById('chk-include-creds'),
 
         toast: document.getElementById('toast'),
       };
@@ -1791,6 +1806,17 @@
           return;
         }
 
+        if (state.mode === 'viewer' && !state.roomCode) {
+          badge.dataset.state = 'idle';
+          badgeText.textContent = 'Not Joined';
+          dom.vChannel.textContent = 'IDLE · 0';
+          dom.vChannel.className = 'stat-val';
+          dom.vStreamPill.dataset.stream = 'waiting';
+          dom.vStreamPill.textContent = 'Enter Room Code';
+          dom.vConnNote.textContent = "Scan the Sender's QR code or enter its room code";
+          return;
+        }
+
         if (state.mode === 'viewer') {
           dom.vChannel.textContent = `${ch} · ${state.droppedPackets}`;
           if (ch === 'SUBSCRIBED') {
@@ -1931,10 +1957,32 @@
         return state.channelTeardown;
       }
 
+      // Sender: count distinct presence keys that a Viewer is tracking
+      function countViewers(presenceState) {
+        return Object.values(presenceState || {})
+          .filter(metas => Array.isArray(metas) && metas.some(m => m && m.role === 'viewer'))
+          .length;
+      }
+
+      function updateViewerCount(n) {
+        state.viewerCount = n;
+        dom.sViewers.textContent = n === null ? '—' : String(n);
+        dom.sViewers.className = `stat-val ${n > 0 ? 'good' : ''}`;
+        renderPairingPill();
+      }
+
+      function renderPairingPill() {
+        const code = state.roomCode || '----';
+        dom.pairingRoomPill.textContent = state.viewerCount === null
+          ? code
+          : `${code} · ${state.viewerCount} watching`;
+      }
+
       async function disconnectChannel(intentional = true) {
         const gen = ++state.connectGen; // Cancels any connectToRoom still in flight
         clearReconnectTimers();
         state.intentionalDisconnect = intentional;
+        updateViewerCount(null);
 
         await detachChannel();
         if (gen !== state.connectGen) return; // A newer connect has taken over
@@ -1996,6 +2044,7 @@
         state.intentionalDisconnect = false;
 
         state.channelStatus = 'CONNECTING';
+        updateViewerCount(null);
         const connectingMsg = options.isRetry
           ? `Reconnecting to room ${cleanRoom} (attempt ${state.reconnectAttempt})…`
           : `Connecting to room ${cleanRoom}…`;
@@ -2008,18 +2057,26 @@
         if (gen !== state.connectGen) return true; // Superseded by a newer connect/disconnect
 
         const channelName = `gyrolink-room-${cleanRoom}`;
+        const isViewer = state.mode === 'viewer';
         const ch = client.channel(channelName, {
           config: {
             broadcast: {
               ack: false,
               self: false,
             },
+            // Presence is in-memory on the Realtime server (no DB writes). Viewers track
+            // themselves under a stable per-tab key; the Sender listens and counts them.
+            presence: { key: isViewer ? state.presenceKey : '' },
           },
         });
 
-        if (state.mode === 'viewer') {
+        if (isViewer) {
           ch.on('broadcast', { event: 'gyro' }, ({ payload }) => {
             handleIncomingGyroPacket(payload);
+          });
+        } else {
+          ch.on('presence', { event: 'sync' }, () => {
+            if (state.channel === ch) updateViewerCount(countViewers(ch.presenceState()));
           });
         }
 
@@ -2036,16 +2093,25 @@
             state.reconnectAttempt = 0;
             clearReconnectTimers();
             clearModeAlert();
+            if (isViewer) {
+              // Presence lives in the server's channel process, so re-track on every (re)join
+              Promise.resolve(ch.track({ role: 'viewer' })).catch(() => {});
+            } else {
+              updateViewerCount(countViewers(ch.presenceState()));
+            }
             updateHealthUI();
           } else if (status === 'TIMED_OUT') {
             state.isSubscribed = false;
+            updateViewerCount(null);
             scheduleReconnect('Timed out');
           } else if (status === 'CHANNEL_ERROR') {
             state.isSubscribed = false;
+            updateViewerCount(null);
             const detail = err && err.message ? `Channel error: ${err.message}` : 'Channel error';
             scheduleReconnect(detail);
           } else if (status === 'CLOSED') {
             state.isSubscribed = false;
+            updateViewerCount(null);
             if (!state.intentionalDisconnect) {
               scheduleReconnect('Channel closed');
             } else {
@@ -2060,10 +2126,9 @@
       }
 
       function forceManualReconnect() {
-        if (!state.roomCode) {
-          if (state.mode === 'sender') {
-            state.roomCode = sanitizeRoomCode(dom.senderRoomInput.value);
-          }
+        if (state.mode === 'viewer' && !state.roomCode) {
+          joinViewerRoom(dom.viewerRoomInput.value);
+          return;
         }
         if (state.roomCode.length !== 4) {
           showModeAlert('Enter a 4-character room code first.');
@@ -2234,13 +2299,12 @@
       async function startStreaming() {
         clearModeAlert();
 
-        const code = sanitizeRoomCode(dom.senderRoomInput.value);
+        // The Sender hosts its own room (created on entering Sender mode)
+        const code = state.roomCode;
         if (code.length !== 4) {
-          showModeAlert('Enter the 4-character room code shown on the Viewer phone.');
-          dom.senderRoomInput.focus();
+          showModeAlert('No room yet. Tap New to create one.');
           return;
         }
-        dom.senderRoomInput.value = code;
 
         // 1. Handle iOS 13+ DeviceOrientationEvent.requestPermission() directly inside click gesture
         if (
@@ -2260,9 +2324,8 @@
         }
 
         // 2. Ensure credentials & channel connection. Don't restart a join that is already in
-        //    progress for this room (e.g. the auto-connect from a QR link); ticks wait for SUBSCRIBED.
-        const sameRoom = state.roomCode === code;
-        const alreadyUp = sameRoom && (state.isSubscribed || state.channelStatus === 'CONNECTING');
+        //    progress (the auto-connect on entering Sender mode); ticks wait for SUBSCRIBED.
+        const alreadyUp = state.isSubscribed || state.channelStatus === 'CONNECTING';
         if (!alreadyUp) {
           const ok = await connectToRoom(code);
           if (!ok) return;
@@ -2288,6 +2351,9 @@
             dom.senderSimBox.hidden = false;
           }
         }, 1600);
+
+        // Viewers have paired by now; collapse the QR so the live readout is visible
+        dom.pairingPanel.open = false;
 
         updateStreamButtonUI();
         updateHealthUI();
@@ -2326,7 +2392,7 @@
       }
 
       // =========================================================================
-      // 11. VIEWER MODE: QR PAIRING, 3D MIRROR, CALIBRATION & WATCHDOG
+      // 11. ROOM PAIRING (SENDER HOSTS) & VIEWER MODE: 3D MIRROR, CALIBRATION & WATCHDOG
       // =========================================================================
       function buildPairingUrl(includeCreds) {
         const url = new URL(window.location.href);
@@ -2346,10 +2412,31 @@
         return url.toString();
       }
 
+      // Sender: reuse the saved room so a reload keeps Viewers paired; create one on first use
+      function loadOrCreateSenderRoom() {
+        const saved = sanitizeRoomCode(localStorage.getItem(STORAGE_KEYS.room));
+        if (saved.length === 4) return saved;
+        const code = generateRoomCode();
+        localStorage.setItem(STORAGE_KEYS.room, code);
+        return code;
+      }
+
+      // Keep ?room= in the Viewer's address bar so a reload rejoins the same room
+      function setRoomInUrl(code) {
+        const url = new URL(window.location.href);
+        if (code) {
+          url.searchParams.set('room', code);
+        } else {
+          url.searchParams.delete('room');
+        }
+        url.hash = '';
+        window.history.replaceState(null, '', url.toString());
+      }
+
       function renderRoomQR() {
         const code = state.roomCode;
-        dom.vRoomCode.textContent = code;
-        dom.pairingRoomPill.textContent = code;
+        dom.sRoomCode.textContent = code;
+        renderPairingPill();
         dom.qrContainer.innerHTML = '';
 
         const includeCreds = dom.chkIncludeCreds.checked;
@@ -2372,8 +2459,8 @@
           });
           const hasCreds = fullLink.includes('#');
           dom.qrCaption.textContent = hasCreds
-            ? 'Scan with Sender phone for 1-tap connect (credentials embedded in hash).'
-            : 'Scan with Sender phone to join room (enter Supabase settings on Sender).';
+            ? 'Scan with each Viewer phone to join in one tap (credentials embedded in the link).'
+            : 'Scan with each Viewer phone to join (each Viewer must enter Supabase settings).';
         } catch {
           // Fallback if URL + JWT exceeds QRCode.js length table edge case
           dom.qrContainer.innerHTML = '';
@@ -2385,7 +2472,7 @@
             colorLight: '#ffffff',
             correctLevel: window.QRCode.CorrectLevel.M,
           });
-          dom.qrCaption.textContent = 'QR links directly to room. Use "Copy Link" to share embedded credentials.';
+          dom.qrCaption.textContent = 'QR code opens the room only. Use the link button to share embedded credentials.';
         }
       }
 
@@ -2589,6 +2676,7 @@
         await disconnectChannel(true);
         state.mode = 'selector';
         state.roomCode = '';
+        setRoomInUrl('');
         dom.viewSelector.hidden = false;
         dom.viewSender.hidden = true;
         dom.viewViewer.hidden = true;
@@ -2596,37 +2684,42 @@
         updateHealthUI();
       }
 
-      async function enterSenderMode(prefillRoom = '') {
+      // Sender hosts the room: reuse/create its code, show the QR code + link, and connect right
+      // away so the Viewer count is live before streaming starts.
+      async function enterSenderMode() {
         stopViewerWatchdog();
+        await releaseWakeLock(); // Sender takes its own wake lock when streaming starts
         await disconnectChannel(true);
 
         state.mode = 'sender';
         dom.viewSelector.hidden = true;
         dom.viewViewer.hidden = true;
         dom.viewSender.hidden = false;
-        document.title = 'Sender · GyroLink';
         clearModeAlert();
+        setRoomInUrl('');
 
-        const code = sanitizeRoomCode(prefillRoom || dom.senderRoomInput.value);
-        dom.senderRoomInput.value = code;
+        state.roomCode = loadOrCreateSenderRoom();
+        document.title = `Sender · ${state.roomCode} · GyroLink`;
         state.sendSeq = 0;
         dom.sSeq.textContent = '0';
         renderSenderAngles(0, 0, 0);
+        updateViewerCount(null);
+        renderRoomQR();
+        dom.pairingPanel.open = true;
         updateStreamButtonUI();
         updateHealthUI();
 
-        if (code.length === 4) {
-          const creds = getCredentials();
-          if (validateCredentials(creds.url, creds.key).ok) {
-            await connectToRoom(code);
-          } else {
-            dom.settingsPanel.open = true;
-            showModeAlert('Paste your Supabase URL and Anon Key in Settings above, then tap Start Streaming.');
-          }
+        const creds = getCredentials();
+        if (validateCredentials(creds.url, creds.key).ok) {
+          await connectToRoom(state.roomCode);
+        } else {
+          dom.settingsPanel.open = true;
+          showModeAlert('Paste your Supabase URL and Anon Key in Settings above. The QR code then carries them to every Viewer.');
         }
       }
 
-      async function enterViewerMode(customRoom = '') {
+      // Viewer joins a Sender's room. With a code (from a QR link or ?room=) it joins right away.
+      async function enterViewerMode(room = '') {
         await stopStreaming();
         await disconnectChannel(true);
 
@@ -2638,21 +2731,41 @@
         clearModeAlert();
 
         resetViewerTelemetry();
-        state.roomCode = sanitizeRoomCode(customRoom) || generateRoomCode();
-        renderRoomQR();
+        state.roomCode = '';
+        dom.viewerRoomInput.value = sanitizeRoomCode(room);
         startViewerWatchdog();
         updateHealthUI();
 
         // Keep the Viewer phone's screen on too; an auto-locked phone suspends the page and the stream
         acquireWakeLock();
 
-        const creds = getCredentials();
-        if (validateCredentials(creds.url, creds.key).ok) {
-          await connectToRoom(state.roomCode);
-        } else {
-          dom.settingsPanel.open = true;
-          showModeAlert('Configure your Supabase URL and Anon Key in Settings to open the Realtime room.');
+        if (dom.viewerRoomInput.value.length === 4) {
+          await joinViewerRoom(dom.viewerRoomInput.value);
         }
+      }
+
+      async function joinViewerRoom(raw) {
+        const code = sanitizeRoomCode(raw);
+        dom.viewerRoomInput.value = code;
+        if (code.length !== 4) {
+          showModeAlert('Enter the 4-character room code shown on the Sender.');
+          return false;
+        }
+        if (code !== state.roomCode) {
+          resetViewerTelemetry(); // Different room: drop stats and calibration from the old one
+        }
+        setRoomInUrl(code);
+        document.title = `Viewer · ${code} · GyroLink`;
+
+        const creds = getCredentials();
+        if (!validateCredentials(creds.url, creds.key).ok) {
+          state.roomCode = code; // Saving settings joins this room
+          dom.settingsPanel.open = true;
+          showModeAlert("Paste the Supabase URL and Anon Key in Settings above, or scan the Sender's QR code (it includes them).");
+          updateHealthUI();
+          return false;
+        }
+        return connectToRoom(code);
       }
 
       // =========================================================================
@@ -2734,12 +2847,12 @@
         dom.settingsPanel.open = false;
         showToast('Supabase settings saved');
 
-        if (state.mode === 'viewer') {
-          renderRoomQR();
+        if (state.mode === 'sender') {
+          renderRoomQR(); // The QR code / link can now carry the credentials
           if (state.roomCode) await connectToRoom(state.roomCode);
-        } else if (state.mode === 'sender') {
-          const code = sanitizeRoomCode(dom.senderRoomInput.value);
-          if (code.length === 4) await connectToRoom(code);
+        } else if (state.mode === 'viewer') {
+          const code = state.roomCode || dom.viewerRoomInput.value;
+          if (sanitizeRoomCode(code).length === 4) await joinViewerRoom(code);
         }
       });
 
@@ -2750,7 +2863,7 @@
         await disconnectChannel(true);
         state.supabaseClient = null;
         syncSettingsUI();
-        if (state.mode === 'viewer') renderRoomQR();
+        if (state.mode === 'sender') renderRoomQR();
         showToast('Cleared saved credentials');
       });
 
@@ -2761,19 +2874,6 @@
       dom.btnViewerBack.addEventListener('click', () => enterSelectorMode());
 
       // Sender Controls
-      dom.senderRoomInput.addEventListener('input', () => {
-        const cleaned = sanitizeRoomCode(dom.senderRoomInput.value);
-        if (dom.senderRoomInput.value !== cleaned) {
-          dom.senderRoomInput.value = cleaned;
-        }
-      });
-
-      dom.btnSenderJoin.addEventListener('click', () => {
-        const code = sanitizeRoomCode(dom.senderRoomInput.value);
-        dom.senderRoomInput.value = code;
-        connectToRoom(code);
-      });
-
       dom.btnToggleStream.addEventListener('click', () => {
         if (state.isStreaming) {
           stopStreaming();
@@ -2793,6 +2893,18 @@
       dom.btnSenderReconnect.addEventListener('click', forceManualReconnect);
 
       // Viewer Controls
+      dom.viewerRoomInput.addEventListener('input', () => {
+        const cleaned = sanitizeRoomCode(dom.viewerRoomInput.value);
+        if (dom.viewerRoomInput.value !== cleaned) {
+          dom.viewerRoomInput.value = cleaned;
+        }
+      });
+
+      dom.viewerJoinForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        joinViewerRoom(dom.viewerRoomInput.value);
+      });
+
       dom.btnViewerReconnect.addEventListener('click', forceManualReconnect);
 
       dom.btnCalibrate.addEventListener('click', () => {
@@ -2813,19 +2925,31 @@
         showToast('Calibration offset cleared');
       });
 
+      // Sender: move to a fresh room. Viewers on the old room stop receiving and must re-join.
       dom.btnNewRoom.addEventListener('click', async () => {
-        resetViewerTelemetry();
         state.roomCode = generateRoomCode();
+        localStorage.setItem(STORAGE_KEYS.room, state.roomCode);
+        document.title = `Sender · ${state.roomCode} · GyroLink`;
         renderRoomQR();
-        showToast(`New room: ${state.roomCode}`);
+        showToast(`New room ${state.roomCode}. Viewers need the new code.`);
         const creds = getCredentials();
         if (validateCredentials(creds.url, creds.key).ok) {
           await connectToRoom(state.roomCode);
         }
       });
 
+      // Share sheet where available (reaches remote Viewers via any messaging app), else clipboard
       dom.btnCopyLink.addEventListener('click', async () => {
         const link = buildPairingUrl(dom.chkIncludeCreds.checked);
+        if (typeof navigator.share === 'function') {
+          try {
+            await navigator.share({ title: `GyroLink room ${state.roomCode}`, url: link });
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return; // User closed the share sheet
+            // Otherwise fall through to copying
+          }
+        }
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(link);
@@ -2865,13 +2989,15 @@
         }
 
         if (credsImported) {
-          showToast('Supabase settings loaded from QR link');
+          showToast('Supabase settings loaded from link');
           dom.settingsPanel.open = false;
         }
 
-        // Auto-select Sender mode if ?room=XXXX is present in the URL
+        dom.btnCopyLink.textContent = typeof navigator.share === 'function' ? 'Share Link' : 'Copy Link';
+
+        // A pairing link (?room=XXXX) opens Viewer mode and joins the Sender's room
         if (incomingRoom && incomingRoom.length === 4) {
-          enterSenderMode(incomingRoom);
+          enterViewerMode(incomingRoom);
         } else {
           updateHealthUI();
         }

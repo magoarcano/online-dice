@@ -4,8 +4,8 @@ Stream live gyroscope (device orientation) data from one phone to another at **1
 
 **Live:** https://magoarcano.github.io/online-dice/
 
-- **Sender** phone: reads `DeviceOrientationEvent` (alpha / beta / gamma) and broadcasts the latest reading every 100 ms.
-- **Viewer** phone: creates a room, shows a QR code for pairing, and mirrors the Sender's orientation on a 3D phone model, with rate, jitter, packet-age and dropped-packet stats.
+- **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma), and broadcasts the latest reading every 100 ms.
+- **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, with rate, jitter, packet-age and dropped-packet stats.
 
 The whole app is one static file, `index.html`, with no build step. (The repo is named `online-dice` for historical reasons; the app is GyroLink.)
 
@@ -25,14 +25,16 @@ The whole app is one static file, `index.html`, with no build step. (The repo is
 
 > If **Realtime → Settings** has public channel access turned off, joining fails with `CHANNEL_ERROR`, because the app uses public channels.
 
-### 2. Pair two phones
+### 2. Pair the phones
 
-1. On the **Viewer** phone, open the live URL and tap **View Live Data**.
-2. Open **Supabase Settings**, paste the URL and key, then tap **Save & Apply**. They're stored only in that browser's `localStorage`.
-3. On the **Sender** phone, scan the QR code. By default it carries the room code **and** the credentials (in the URL `#hash`), so the Sender is set up with one tap.
-4. Tap **Start Streaming**. On iOS, allow **Motion & Orientation** access when asked.
+1. On the **Sender** phone, open the live URL and tap **Send Gyroscope Data**. It creates a 4-character room and shows its QR code.
+2. Open **Supabase Settings**, paste the URL and key, then tap **Save & Apply**. They're stored only in that browser's `localStorage`, and the QR code now carries them.
+3. On each **Viewer**, scan the QR code. Or use **Share Link** / **Copy Link** for Viewers somewhere else. The link carries the room code **and** the credentials (in the URL `#hash`), so every Viewer is set up with one tap. **Viewers Watching** on the Sender counts them as they join.
+4. On the Sender, tap **Start Streaming**. On iOS, allow **Motion & Orientation** access when asked. The QR panel collapses; tap it to bring the QR code back for late joiners.
 
-You can also choose **Send Gyroscope Data** on the Sender and type the 4-character room code by hand.
+A Viewer can also tap **View Live Data** and type the room code by hand. It then needs the Supabase settings entered itself.
+
+The Sender keeps its room across reloads, so Viewers stay paired. **New** moves to a fresh room, and Viewers must then re-join with the new code. A Viewer's address bar keeps `?room=CODE`, so reloading a Viewer rejoins the same room.
 
 ### Requirements
 
@@ -62,11 +64,15 @@ python3 -m http.server 8000      # then open http://localhost:8000
 npm test        # same as: node tests/harness.test.js   (Node 18+, no dependencies, ~5 s)
 ```
 
-`tests/harness.test.js` runs the page's **real inline script** in a Node `vm` sandbox with a fake DOM and a mock Supabase client. The mock copies the realtime-js 2.119.2 behaviors the reconnect logic depends on: same-topic channel reuse, async leave, and throwing on a second `subscribe`. It covers:
-- **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects. Switch Mode during an in-flight connect leaves no stray channel. The QR-link auto-connect isn't restarted by tapping Start.
+`tests/harness.test.js` runs the page's **real inline script** in Node `vm` sandboxes, one per simulated phone, each with a fake DOM and a mock Supabase client. Phones share an in-memory mock server, so broadcasts and presence flow between them. The mock copies the realtime-js 2.119.2 behaviors the app depends on: same-topic channel reuse, async leave, throwing on a second `subscribe`, and presence `track`/`sync`. It covers:
+- **Pairing:** the Sender creates, saves and reuses its room, **New** moves rooms, and the QR code and share link carry the room and credentials. Links open Viewer mode, typed codes are cleaned up and validated, and `?room=` is kept for reloads.
+- **One Sender, many Viewers:** two Viewers both receive the stream, and the Sender counts 2, then 1 when one leaves.
+- **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects, and presence is re-tracked. Switch Mode during an in-flight connect leaves no stray channel. Tapping Start doesn't restart the Sender's auto-connect.
 - **3D mirror:** feeds poses through the Viewer and compares the actual `.phone-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
 - **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
+
+If a check throws, the run reports a crash and exits 1, never a silent pass.
 
 It can't cover real browsers, sensors or Supabase; use the manual checklist below for those. `package.json` exists only for `npm test`, and the app has no build step.
 
@@ -83,15 +89,18 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 | Channel | `gyrolink-room-<CODE>` (public), config `broadcast: { ack: false, self: false }` |
 | Event | `gyro` |
 | Payload | `{ a, b, g, seq, ts }`: degrees rounded to 0.1, `seq` increases by 1 per sent packet, `ts` = sender `Date.now()` |
-| Room code | 4 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `I L O 0 1`) |
-| Pairing URL | `?room=CODE#u=<supabase-url>&k=<key>`. Credentials go in the hash, so they never reach a server. They're cleared from the address bar on load and saved under `gyrolink_supabase_url` / `gyrolink_supabase_anon_key`. |
+| Presence | Viewers `track({ role: 'viewer' })` under a stable per-tab key (`config.presence.key`) and re-track on every (re)join. The Sender listens for `sync` and counts keys with a viewer entry. Presence is in-memory on the Realtime server, with no DB writes. |
+| Room code | 4 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `I L O 0 1`). Created by the **Sender** and saved under `gyrolink_sender_room`. |
+| Pairing URL | `?room=CODE#u=<supabase-url>&k=<key>` opens **Viewer** mode and joins `CODE`. Credentials go in the hash, so they never reach a server. They're cleared from the address bar on load and saved under `gyrolink_supabase_url` / `gyrolink_supabase_anon_key`. |
 
 ### Sender
+- Hosts the room. On entering Sender mode it reuses or creates its room code, renders the QR code and connects right away, so the Viewer count is live before streaming starts. Start Streaming reuses that connection, even while it's still joining.
 - `deviceorientation` updates the latest reading. A `setInterval(100 ms)` loop broadcasts it, but only after the first real (or simulated) reading, so it never sends a placeholder `0/0/0`.
 - Sending is gated on `state.isSubscribed`. Without that gate, `channel.send()` would silently fall back to REST POSTs.
 - The iOS permission request must be the **first `await`** in the Start click handler, or iOS loses the user gesture and refuses.
 
 ### Viewer
+- Joins with `joinViewerRoom()` from a pairing link or a typed code. Until it has joined, the badge shows **Not Joined**. Switching rooms resets its stats and calibration.
 - Renders each packet as it arrives. A watchdog every 120 ms marks the stream **Stalled** after 500 ms without packets and **Sender Offline** after 2000 ms.
 - **Jitter** is the mean absolute deviation from 100 ms over the last 25 gaps between packets. **Drops** are counted from gaps in `seq`; a lower `seq` means the Sender restarted, which resets the count.
 - **3D model:** `rotateZ(-α) rotateX(-β) rotateY(γ)`. That's the W3C intrinsic Z-X′-Y″ order, adjusted for CSS's downward Y axis, with the camera looking down at a phone lying flat. The angles are unwrapped so the CSS transition never spins the long way around through 360°.
@@ -110,7 +119,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport & backoff · `9` wake lock · `10` sender · `11` viewer (QR, 3D, watchdog) · `12` mode switching · `13` visibility & network recovery · `14` event listeners · `15` init.
+`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
 
 ---
 
@@ -125,20 +134,21 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ## Limits & costs
 
-- **Quota:** each packet counts as 1 message sent plus 1 per viewer receiving it. One Sender and one Viewer is about 20 msg/s, or about 1.7 M messages per day. Check your plan's monthly Realtime message quota; at the time of writing the free plan included 2 M per month.
+- **Quota:** each packet counts as 1 message sent plus 1 per viewer receiving it. One Sender and one Viewer is about 20 msg/s, or about 1.7 M messages per day, and **each extra Viewer adds about 10 msg/s** (~0.86 M/day). Presence adds only a few messages when Viewers join or leave. Check your plan's monthly Realtime message quota; at the time of writing the free plan included 2 M per month.
 - **Security model:** channels are public, the room code has about 920 k combinations, and shared links contain the anon key. Anyone with the link can listen in or send fake packets. That's fine for demos. For anything sensitive, move to private channels with RLS on `realtime.messages`.
 
 ## Known gaps / TODO
 
 - [ ] Check the 3D tilt directions on real devices. `npm test` checks the math against the spec, but no real devices have been tested yet.
 - [ ] Calibration uses per-angle subtraction; quaternions would be correct at large tilts.
-- [ ] The Sender can't tell whether a Viewer is connected. Realtime Presence could show it.
+- [ ] Viewers can't tell an idle Sender (online, not streaming) from an absent one. The Sender could also track presence.
 - [ ] Two Senders in one room would interleave their packets and inflate the drop count.
+- [ ] The Viewer count can lag when a Viewer vanishes without leaving, such as a dead battery, until the Realtime server notices.
 - [ ] URL validation accepts `http:`, but its error message says "must start with https://".
 
 ### Manual test checklist
-1. Viewer: create a room, and the QR code renders. Sender: scan it and start streaming. The Viewer shows **Live** at about 10 Hz.
-2. Lock the Sender phone for 10 s, then unlock. The stream resumes on its own.
+1. Sender: the room and QR code render. Two Viewers scan it, and **Viewers Watching** shows 2. Start streaming, and both Viewers show **Live** at about 10 Hz.
+2. Lock the Sender phone for 10 s, then unlock. The stream resumes on its own. Reload the Sender: same room, and the Viewers recover without re-pairing.
 3. Toggle airplane mode on either phone. It reconnects after the network returns.
 4. Leave the Viewer untouched for over 1 minute. The screen stays on (wake lock).
 5. Paste a `service_role` key into settings. It's rejected.
