@@ -72,7 +72,7 @@ function createServer() {
   };
 }
 
-function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false, windowExtras = {} } = {}) {
+function boot({ search = '', hash = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false, windowExtras = {} } = {}) {
   const els = {};
   const mkEl = id => {
     const listeners = {};
@@ -162,7 +162,7 @@ function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30,
   function QRCode(el, opts) { qr.push(opts.text); }
   QRCode.CorrectLevel = { L: 1, M: 0 };
   const prompts = [];
-  const location = { href: `https://example.com/${search}`, protocol: 'https:', hostname: 'example.com', hash: '', search };
+  const location = { href: `https://example.com/${search}${hash}`, protocol: 'https:', hostname: 'example.com', hash, search };
   const window = {
     location,
     history: {
@@ -215,6 +215,8 @@ function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30,
     hasWinListener: t => (winListeners[t] || []).length > 0,
   };
 }
+
+boot.noEl = { fire: async () => {} };
 
 // --- 3D math helpers -------------------------------------------------------------------------
 const rad = d => (d * Math.PI) / 180;
@@ -609,6 +611,53 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
 
     for (const p of [d, v, empty]) await p.els['btn-viewer-back'].fire('click'); // stop watchdogs
     await sender.els['btn-sender-back'].fire('click');
+  }
+
+  // 11. Sender: Viewer | Die switch picks which page the QR code and link open
+  {
+    // Elements exist in the fake DOM only once the script looks them up
+    const pressedOf = (p, id) => (p.els[id] || { attrs: {} }).attrs['aria-pressed'];
+    const shell = p => (p.els['app-shell'] || { dataset: {} }).dataset;
+    const server = createServer();
+    const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const t = boot({ server, store, share: true });
+    await t.els['btn-choose-sender'].fire('click');
+    const room = t.text('s-room-code');
+    const lastQr = () => t.qr[t.qr.length - 1] || '';
+    const pressed = () => `${pressedOf(t, 'btn-link-viewer')},${pressedOf(t, 'btn-link-die')}`;
+    check('sender QR opens the Viewer by default', pressed() === 'true,false' && !lastQr().includes('view=die'), `${pressed()} ${lastQr().slice(0, 60)}`);
+    await (t.els['btn-link-die'] || boot.noEl).fire('click');
+    check('Die switch: QR opens the die page with credentials', pressed() === 'false,true' && lastQr().includes(`?room=${room}&view=die#u=`) && lastQr().includes('k=') && store.get('gyrolink_sender_link') === 'die', `${pressed()} ${lastQr().slice(0, 60)}`);
+    await t.els['btn-copy-link'].fire('click');
+    check('Die switch: Share Link shares the die link titled Die', t.shares[0] && t.shares[0].url === lastQr() && t.shares[0].title === 'Die', JSON.stringify(t.shares[0]).slice(0, 80));
+
+    // Scanning that QR code: the hash is scrubbed, view=die stays, the Sender counts it
+    const u = new URL(lastQr());
+    const d = boot({ server, store: new Map(), search: u.search, hash: u.hash });
+    await sleep(150);
+    check('scanned die QR opens the die page and joins', shell(d).page === 'die' && d.location.search === `?room=${room}&view=die` && d.location.hash === '' && d.text('health-badge-text') === 'Connected', `${shell(d).page} ${d.location.search} ${d.text('health-badge-text')}`);
+    check('sender counts the scanned die page', t.text('s-viewers') === '1', t.text('s-viewers'));
+
+    t.els['chk-include-creds'].checked = false;
+    await t.els['chk-include-creds'].fire('change');
+    check('die link without credentials', lastQr() === `https://example.com/?room=${room}&view=die`, lastQr());
+    t.els['chk-include-creds'].checked = true;
+    await t.els['chk-include-creds'].fire('change');
+
+    await t.els['btn-new-room'].fire('click');
+    await sleep(300);
+    const room2 = t.text('s-room-code');
+    check('New keeps the die link on the new room', lastQr().includes(`?room=${room2}&view=die#`), lastQr().slice(0, 60));
+    await d.els['btn-viewer-back'].fire('click');
+    await t.els['btn-sender-back'].fire('click');
+
+    const t2 = boot({ store });
+    await t2.els['btn-choose-sender'].fire('click');
+    const lastQr2 = () => t2.qr[t2.qr.length - 1] || '';
+    check('die link choice is remembered on reload', pressedOf(t2, 'btn-link-die') === 'true' && lastQr2().includes('&view=die'), lastQr2().slice(0, 60));
+    await (t2.els['btn-link-viewer'] || boot.noEl).fire('click');
+    check('Viewer switch goes back to the Viewer link', store.get('gyrolink_sender_link') === 'viewer' && !lastQr2().includes('view=die'), lastQr2().slice(0, 60));
+    await t2.els['btn-sender-back'].fire('click');
   }
 
   check('no unhandled promise rejections', unhandled.length === 0, unhandled.join('; '));

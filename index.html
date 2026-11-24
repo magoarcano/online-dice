@@ -1480,6 +1480,10 @@
             </div>
 
             <div class="qr-wrapper">
+              <div class="model-toggle" role="group" aria-label="QR code opens">
+                <button type="button" id="btn-link-viewer" class="model-toggle-btn" aria-pressed="true">Viewer</button>
+                <button type="button" id="btn-link-die" class="model-toggle-btn" aria-pressed="false">Die</button>
+              </div>
               <div id="qr-container" class="qr-box" aria-label="QR code that opens Viewer mode for this room"></div>
               <p id="qr-caption" class="muted text-center">Scan with each Viewer phone to join this room.</p>
             </div>
@@ -1771,6 +1775,7 @@
         key: 'gyrolink_supabase_anon_key',
         room: 'gyrolink_sender_room', // Sender keeps its room across reloads so Viewers stay paired
         model: 'gyrolink_viewer_model', // Viewer's 3D model: 'phone' | 'die'
+        link: 'gyrolink_sender_link', // Which page the Sender's QR code / link opens: 'viewer' | 'die'
       };
       const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
       const SEND_INTERVAL_MS = 100;         // Strictly 10 Hz
@@ -1825,6 +1830,7 @@
         // Stable per tab, so a Viewer that reconnects is still counted once by the Sender
         presenceKey: `viewer-${Math.random().toString(36).slice(2, 10)}`,
         viewerCount: null,                    // Sender only: Viewers present in the room (null = unknown)
+        pairingLink: 'viewer',                // Sender only: page its QR code / link opens ('viewer' | 'die')
 
         // Sender state
         isStreaming: false,
@@ -1915,6 +1921,8 @@
         sRoomCode: document.getElementById('s-room-code'),
         btnCopyLink: document.getElementById('btn-copy-link'),
         btnNewRoom: document.getElementById('btn-new-room'),
+        btnLinkViewer: document.getElementById('btn-link-viewer'),
+        btnLinkDie: document.getElementById('btn-link-die'),
         qrContainer: document.getElementById('qr-container'),
         qrCaption: document.getElementById('qr-caption'),
         chkIncludeCreds: document.getElementById('chk-include-creds'),
@@ -2869,11 +2877,12 @@
       // =========================================================================
       // 11. ROOM PAIRING (SENDER HOSTS) & VIEWER MODE: 3D MIRROR, DIE, CALIBRATION & WATCHDOG
       // =========================================================================
-      function buildPairingUrl(includeCreds) {
+      function buildPairingUrl(includeCreds, kind = state.pairingLink) {
         const url = new URL(window.location.href);
         url.search = '';
         url.hash = '';
         url.searchParams.set('room', state.roomCode);
+        if (kind === 'die') url.searchParams.set('view', 'die'); // Opens the observer's die page
 
         if (includeCreds) {
           const creds = getCredentials();
@@ -2908,8 +2917,25 @@
         window.history.replaceState(null, '', url.toString());
       }
 
+      // Sender: which page the QR code and link open. Anything but 'die' means the normal Viewer.
+      function applyPairingLink(kind) {
+        state.pairingLink = kind === 'die' ? 'die' : 'viewer';
+        dom.btnLinkViewer.setAttribute('aria-pressed', String(state.pairingLink === 'viewer'));
+        dom.btnLinkDie.setAttribute('aria-pressed', String(state.pairingLink === 'die'));
+      }
+
+      function setPairingLink(kind) {
+        applyPairingLink(kind);
+        localStorage.setItem(STORAGE_KEYS.link, state.pairingLink);
+        renderRoomQR();
+      }
+
       function renderRoomQR() {
         const code = state.roomCode;
+        const forDie = state.pairingLink === 'die';
+        dom.qrContainer.setAttribute('aria-label', forDie
+          ? "QR code that opens the die page for this room"
+          : 'QR code that opens Viewer mode for this room');
         dom.sRoomCode.textContent = code;
         renderPairingPill();
         dom.qrContainer.innerHTML = '';
@@ -2933,9 +2959,15 @@
             correctLevel: window.QRCode.CorrectLevel.L,
           });
           const hasCreds = fullLink.includes('#');
-          dom.qrCaption.textContent = hasCreds
-            ? 'Scan with each Viewer phone to join in one tap (credentials embedded in the link).'
-            : 'Scan with each Viewer phone to join (each Viewer must enter Supabase settings).';
+          if (forDie) {
+            dom.qrCaption.textContent = hasCreds
+              ? "Scan with the observer's phone to open the die page."
+              : "Scan with the observer's phone to open the die page (it must enter Supabase settings).";
+          } else {
+            dom.qrCaption.textContent = hasCreds
+              ? 'Scan with each Viewer phone to join in one tap (credentials embedded in the link).'
+              : 'Scan with each Viewer phone to join (each Viewer must enter Supabase settings).';
+          }
         } catch {
           // Fallback if URL + JWT exceeds QRCode.js length table edge case
           dom.qrContainer.innerHTML = '';
@@ -3220,6 +3252,7 @@
         dom.sSeq.textContent = '0';
         renderSenderAngles(0, 0, 0);
         updateViewerCount(null);
+        applyPairingLink(localStorage.getItem(STORAGE_KEYS.link));
         renderRoomQR();
         dom.pairingPanel.open = true;
         updateStreamButtonUI();
@@ -3460,9 +3493,11 @@
       // Share sheet where available (reaches remote Viewers via any messaging app), else clipboard
       dom.btnCopyLink.addEventListener('click', async () => {
         const link = buildPairingUrl(dom.chkIncludeCreds.checked);
+        const forDie = state.pairingLink === 'die';
         if (typeof navigator.share === 'function') {
           try {
-            await navigator.share({ title: `GyroLink room ${state.roomCode}`, url: link });
+            // The die link may be shared straight to the observer: no app name or room code in its title
+            await navigator.share({ title: forDie ? 'Die' : `GyroLink room ${state.roomCode}`, url: link });
             return;
           } catch (err) {
             if (err && err.name === 'AbortError') return; // User closed the share sheet
@@ -3472,14 +3507,17 @@
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(link);
-            showToast('Invite link copied');
+            showToast(forDie ? 'Die link copied' : 'Invite link copied');
           } else {
             throw new Error('Clipboard API unavailable');
           }
         } catch {
-          window.prompt('Copy invite link:', link);
+          window.prompt(forDie ? 'Copy die link:' : 'Copy invite link:', link);
         }
       });
+
+      dom.btnLinkViewer.addEventListener('click', () => setPairingLink('viewer'));
+      dom.btnLinkDie.addEventListener('click', () => setPairingLink('die'));
 
       dom.chkIncludeCreds.addEventListener('change', () => {
         renderRoomQR();
