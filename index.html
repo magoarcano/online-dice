@@ -1041,8 +1041,8 @@
 
     .die-1 { transform: translateZ(calc(var(--die-size) / 2)); }                 /* FRONT (screen) */
     .die-6 { transform: rotateY(180deg) translateZ(calc(var(--die-size) / 2)); } /* BACK */
-    .die-3 { transform: rotateY(90deg) translateZ(calc(var(--die-size) / 2)); }  /* RIGHT */
-    .die-4 { transform: rotateY(-90deg) translateZ(calc(var(--die-size) / 2)); } /* LEFT */
+    .die-4 { transform: rotateY(90deg) translateZ(calc(var(--die-size) / 2)); }  /* RIGHT */
+    .die-3 { transform: rotateY(-90deg) translateZ(calc(var(--die-size) / 2)); } /* LEFT */
     .die-2 { transform: rotateX(90deg) translateZ(calc(var(--die-size) / 2)); }  /* TOP edge */
     .die-5 { transform: rotateX(-90deg) translateZ(calc(var(--die-size) / 2)); } /* BOTTOM edge */
 
@@ -1537,7 +1537,7 @@
                 </div>
                 <span class="phone-back-label">BACK</span>
               </div>
-              <!-- Die: front 1, back 6, right 3, left 4, top edge 2, bottom edge 5 -->
+              <!-- Die: front 1, back 6, right 4, left 3, top edge 2, bottom edge 5 -->
               <div class="die-face die-1"><span class="pip c"></span></div>
               <div class="die-face die-6"><span class="pip tl"></span><span class="pip tr"></span><span class="pip ml"></span><span class="pip mr"></span><span class="pip bl"></span><span class="pip br"></span></div>
               <div class="die-face die-3"><span class="pip tr"></span><span class="pip c"></span><span class="pip bl"></span></div>
@@ -1675,12 +1675,13 @@
       const GRAVITY = 9.81;                 // m/s², used by the simulated accelerometer
       const PEAK_HOLD_MS = 1000;            // Displayed acceleration peak is held this long
       // Die face on each side of the phone, as [device axis, sign]. W3C axes: 0 = x (right),
-      // 1 = y (toward the top edge), 2 = z (out of the screen). Opposite faces add up to 7.
+      // 1 = y (toward the top edge), 2 = z (out of the screen). Opposite faces add up to 7, and
+      // 1, 2, 3 run counterclockwise around their shared corner, like a standard die.
       const DIE_FACES = {
         1: [2, 1],  // FRONT (screen)
         6: [2, -1], // BACK
-        3: [0, 1],  // RIGHT
-        4: [0, -1], // LEFT
+        4: [0, 1],  // RIGHT
+        3: [0, -1], // LEFT
         2: [1, 1],  // TOP edge
         5: [1, -1], // BOTTOM edge
       };

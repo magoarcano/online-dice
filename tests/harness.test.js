@@ -508,10 +508,10 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
   // 9. Die model: faces where the spec puts them, and the big number is the face the drawn die has on top
   {
     // Model CSS axes: x right, y down (the phone's top edge is -y), z out of the screen
-    const want = { 1: [0, 0, 1], 6: [0, 0, -1], 3: [1, 0, 0], 4: [-1, 0, 0], 2: [0, -1, 0], 5: [0, 1, 0] };
+    const want = { 1: [0, 0, 1], 6: [0, 0, -1], 4: [1, 0, 0], 3: [-1, 0, 0], 2: [0, -1, 0], 5: [0, 1, 0] };
     const placed = Object.keys(dieFaceNormals).length === 6 && Object.keys(want).every(n =>
       dieFaceNormals[n] && dieFaceNormals[n].every((v, i) => Math.abs(v - want[n][i]) < 1e-9));
-    check('die faces: front 1, back 6, right 3, left 4, top 2, bottom 5', placed, JSON.stringify(dieFaceNormals));
+    check('die faces: front 1, back 6, right 4, left 3, top 2, bottom 5', placed, JSON.stringify(dieFaceNormals));
 
     const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
     const t = boot({ search: '?room=AB12', store });
@@ -526,7 +526,7 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     const ch = t.mock.channels[0];
     const send = (a, b, g) => ch.handlers.broadcast[0]({ payload: { a, b, g, seq: 1, ts: Date.now() } });
     const top = (a, b, g) => (send(a, b, g), t.text('v-die-top'));
-    const sides = [[[0, 0, 0], '1'], [[0, 180, 0], '6'], [[0, 90, 0], '2'], [[0, -90, 0], '5'], [[0, 0, -80], '3'], [[0, 0, 80], '4'], [[217, 85, 20], '2'], [[40, -170, 5], '6']];
+    const sides = [[[0, 0, 0], '1'], [[0, 180, 0], '6'], [[0, 90, 0], '2'], [[0, -90, 0], '5'], [[0, 0, -80], '4'], [[0, 0, 80], '3'], [[217, 85, 20], '2'], [[40, -170, 5], '6']];
     const got = sides.map(([pose]) => top(...pose));
     check('top number for each side resting up', got.join() === sides.map(s => s[1]).join(), got.join());
 
