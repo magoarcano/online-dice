@@ -72,7 +72,7 @@ function createServer() {
   };
 }
 
-function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false } = {}) {
+function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30, server = createServer(), store, share = false, windowExtras = {} } = {}) {
   const els = {};
   const mkEl = id => {
     const listeners = {};
@@ -176,6 +176,7 @@ function boot({ search = '', storedKey = ANON, leaveDelay = 150, joinDelay = 30,
     QRCode,
     crypto: require('crypto').webcrypto,
     prompt: (msg, text) => { prompts.push(text); },
+    ...windowExtras,
   };
 
   // Browsers auto-release screen wake locks when the page is hidden and fire 'release'
@@ -291,6 +292,20 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
       worst = Math.max(worst, maxDiff(renderedCssMatrix(t.els['phone-3d'].style), expectedCssMatrix(a, b, g)));
     }
     check('3D transform matches W3C Z-X\'-Y\'\' orientation', worst < 1e-9, `max matrix error=${worst.toExponential(2)}`);
+
+    // Acceleration: shown when valid, '—' when missing or malformed (packets come from anyone)
+    const accText = () => ['v-acc-x', 'v-acc-y', 'v-accg-z', 'v-acc-peak'].map(id => t.text(id)).join(' | ');
+    check('packet without acceleration shows —', t.text('v-acc-x') === '—' && t.text('v-acc-peak') === '—', accText());
+    const send = p => ch.handlers.broadcast[0]({ payload: { a: 0, b: 0, g: 0, seq: 1, ts: Date.now(), ...p } });
+    send({ acc: [1.234, -0.5, 0], accg: [1.234, -0.5, 9.81], pk: 4 });
+    check('viewer shows acceleration and peak', accText() === '1.23 | -0.50 | with g 9.81 | 4.00', accText());
+    send({ acc: [0.1, 0, 0], accg: [0.1, 0, 9.81], pk: 0.1 });
+    check('viewer holds the peak', t.text('v-acc-x') === '0.10' && t.text('v-acc-peak') === '4.00', accText());
+    await sleep(1100);
+    send({ acc: [0.1, 0, 0], accg: [0.1, 0, 9.81], pk: 0.1 });
+    check('peak hold expires after 1 s', t.text('v-acc-peak') === '0.10', accText());
+    send({ acc: ['1', 2, 3], accg: [0, null, 9.81], pk: 'x' });
+    check('malformed acceleration shows —', t.text('v-acc-x') === '—' && t.text('v-accg-x') === '' && t.text('v-acc-peak') === '—', accText());
     await t.els['btn-viewer-back'].fire('click'); // stop the watchdog interval
   }
 
@@ -340,7 +355,29 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     const last = t.mock.sent[t.mock.sent.length - 1];
     check('packets flow after first reading', t.mock.sent.length >= 2, `sent=${t.mock.sent.length}`);
     check('payload carries the reading', last && last.payload.a === 12.3 && last.payload.b === -5.7 && last.payload.g === 8.9, JSON.stringify(last && last.payload));
+    check('no acceleration fields before the accelerometer reports', last && !('acc' in last.payload) && !('pk' in last.payload), JSON.stringify(last && last.payload));
+
+    // A tap between two ticks: the packet carries the latest sample, and the tap as its peak
+    check('devicemotion listener attached', t.hasWinListener('devicemotion'));
+    const motion = (x, y, z) => ({ acceleration: { x, y, z }, accelerationIncludingGravity: { x, y, z: z + 9.81 } });
+    let before = t.mock.sent.length;
+    t.fireWin('devicemotion', motion(3, 4, 0));
+    t.fireWin('devicemotion', motion(0.1, 0, 0));
+    await sleep(250);
+    const [p1, p2] = t.mock.sent.slice(before).map(m => m.payload);
+    check('payload carries acceleration with and without gravity', p1 && JSON.stringify(p1.acc) === '[0.1,0,0]' && JSON.stringify(p1.accg) === '[0.1,0,9.81]', JSON.stringify(p1));
+    check('peak catches a tap between two packets', p1 && p1.pk === 5, JSON.stringify(p1));
+    check('peak window resets every packet', p2 && p2.pk === 0.1, JSON.stringify(p2));
+    check('sender shows its own acceleration', t.text('s-acc-x') === '0.10' && t.text('s-accg-z') === 'with g 9.81', `${t.text('s-acc-x')} | ${t.text('s-accg-z')}`);
+
+    // Some devices report only acceleration with gravity
+    before = t.mock.sent.length;
+    t.fireWin('devicemotion', { acceleration: { x: null, y: null, z: null }, accelerationIncludingGravity: { x: 0, y: 0, z: 9.81 } });
+    await sleep(150);
+    const p3 = t.mock.sent.length > before && t.mock.sent[t.mock.sent.length - 1].payload;
+    check('device without linear acceleration sends gravity only', p3 && p3.acc === null && JSON.stringify(p3.accg) === '[0,0,9.81]' && p3.pk === null, JSON.stringify(p3));
     await t.els['btn-toggle-stream'].fire('click'); // stop the 10 Hz interval
+    check('stopping clears the acceleration readout', t.text('s-acc-x') === '—' && t.text('s-acc-peak') === '—', t.text('s-acc-x'));
 
     // "New" moves to a fresh room
     await t.els['btn-new-room'].fire('click');
@@ -376,6 +413,9 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await sleep(350);
     check('both viewers receive the stream', v1.text('v-alpha') === '33.3°' && v2.text('v-alpha') === '33.3°', `${v1.text('v-alpha')} / ${v2.text('v-alpha')}`);
     check('both viewers show Live', v1.text('health-badge-text') === 'Live' && v2.text('health-badge-text') === 'Live', `${v1.text('health-badge-text')} / ${v2.text('health-badge-text')}`);
+    sender.fireWin('devicemotion', { acceleration: { x: 0.5, y: 0, z: 0 }, accelerationIncludingGravity: { x: 0.5, y: 0, z: 9.81 } });
+    await sleep(250);
+    check('both viewers receive acceleration', v1.text('v-acc-x') === '0.50' && v2.text('v-accg-z') === 'with g 9.81', `${v1.text('v-acc-x')} / ${v2.text('v-accg-z')}`);
 
     await v2.els['btn-viewer-back'].fire('click');
     await sleep(250);
@@ -415,6 +455,32 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
       await t.els['settings-form'].fire('submit');
       check(`settings accepts ${label}`, t.store.get('gyrolink_supabase_anon_key') === key);
     }
+  }
+
+  // 8. iOS permissions, and the simulated sensors
+  {
+    const calls = [];
+    const api = (name, ok) => ({
+      requestPermission: () => { calls.push(name); return ok ? Promise.resolve('granted') : Promise.reject(new Error('denied')); },
+    });
+    const t = boot({ windowExtras: { DeviceOrientationEvent: api('orientation', true), DeviceMotionEvent: api('motion', false) } });
+    await t.els['btn-choose-sender'].fire('click');
+    t.els['btn-toggle-stream'].fire('click');
+    // Nothing awaited yet, so both requests were made inside the tap's user gesture
+    check('iOS: orientation and motion permission requested inside the tap', calls.join() === 'orientation,motion', calls.join());
+    await sleep(300);
+    check('iOS: streams even when motion permission fails', t.text('btn-toggle-stream-label') === 'Stop Streaming' && t.hasWinListener('devicemotion'), t.text('btn-toggle-stream-label'));
+
+    await t.els['btn-toggle-sim'].fire('click');
+    await sleep(250);
+    const p = t.mock.sent.length && t.mock.sent[t.mock.sent.length - 1].payload;
+    const ok = p && Array.isArray(p.acc) && Array.isArray(p.accg);
+    // Gravity (accg - acc) should be what a phone tilted to the simulated beta/gamma feels at rest
+    const expected = ok && [-Math.sin(rad(p.g)) * Math.cos(rad(p.b)), Math.sin(rad(p.b)), Math.cos(rad(p.g)) * Math.cos(rad(p.b))].map(v => v * 9.81);
+    const err = ok ? Math.max(...p.accg.map((v, i) => Math.abs(v - p.acc[i] - expected[i]))) : Infinity;
+    check('simulated acceleration includes gravity matching the simulated tilt', err < 0.05, `max error=${err} ${JSON.stringify(p)}`);
+    await t.els['btn-toggle-stream'].fire('click');
+    await t.els['btn-sender-back'].fire('click');
   }
 
   check('no unhandled promise rejections', unhandled.length === 0, unhandled.join('; '));

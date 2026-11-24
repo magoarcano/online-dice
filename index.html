@@ -759,6 +759,24 @@
     .axis-beta .axis-bar-fill { background: #a78bfa; }
     .axis-gamma .axis-bar-fill { background: #34d399; }
 
+    /* Acceleration readout: header row above an .axis-grid of X / Y / Z cards */
+    .accel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .accel-peak {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+    }
+
     /* Telemetry Stats Grid */
     .stats-grid {
       display: grid;
@@ -1269,6 +1287,31 @@
           </div>
         </div>
 
+        <!-- Local acceleration: big value without gravity, small line with gravity -->
+        <div class="stack-sm">
+          <div class="accel-head"><span>Acceleration · m/s²</span><span>Peak <span id="s-acc-peak" class="accel-peak">—</span></span></div>
+          <div class="axis-grid" aria-label="Local accelerometer values">
+            <div class="axis-card axis-beta">
+              <div class="axis-label"><span>Accel</span><span class="axis-badge">X</span></div>
+              <div id="s-acc-x" class="axis-value">—</div>
+              <div id="s-accg-x" class="axis-sub"></div>
+              <div class="axis-bar-track"><div id="s-acc-x-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+            </div>
+            <div class="axis-card axis-gamma">
+              <div class="axis-label"><span>Accel</span><span class="axis-badge">Y</span></div>
+              <div id="s-acc-y" class="axis-value">—</div>
+              <div id="s-accg-y" class="axis-sub"></div>
+              <div class="axis-bar-track"><div id="s-acc-y-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+            </div>
+            <div class="axis-card axis-alpha">
+              <div class="axis-label"><span>Accel</span><span class="axis-badge">Z</span></div>
+              <div id="s-acc-z" class="axis-value">—</div>
+              <div id="s-accg-z" class="axis-sub"></div>
+              <div class="axis-bar-track"><div id="s-acc-z-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Sender Telemetry Stats -->
         <div class="stats-grid">
           <div class="stat-tile wide">
@@ -1392,6 +1435,31 @@
             </div>
           </div>
 
+          <!-- Incoming acceleration: big value without gravity, small line with gravity -->
+          <div class="stack-sm">
+            <div class="accel-head"><span>Acceleration · m/s²</span><span>Peak <span id="v-acc-peak" class="accel-peak">—</span></span></div>
+            <div class="axis-grid" aria-label="Incoming accelerometer values">
+              <div class="axis-card axis-beta">
+                <div class="axis-label"><span>Accel</span><span class="axis-badge">X</span></div>
+                <div id="v-acc-x" class="axis-value">—</div>
+                <div id="v-accg-x" class="axis-sub"></div>
+                <div class="axis-bar-track"><div id="v-acc-x-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+              </div>
+              <div class="axis-card axis-gamma">
+                <div class="axis-label"><span>Accel</span><span class="axis-badge">Y</span></div>
+                <div id="v-acc-y" class="axis-value">—</div>
+                <div id="v-accg-y" class="axis-sub"></div>
+                <div class="axis-bar-track"><div id="v-acc-y-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+              </div>
+              <div class="axis-card axis-alpha">
+                <div class="axis-label"><span>Accel</span><span class="axis-badge">Z</span></div>
+                <div id="v-acc-z" class="axis-value">—</div>
+                <div id="v-accg-z" class="axis-sub"></div>
+                <div class="axis-bar-track"><div id="v-acc-z-bar" class="axis-bar-fill" style="--pct: 50%;"></div></div>
+              </div>
+            </div>
+          </div>
+
           <!-- Stream Health Metrics -->
           <div class="stats-grid">
             <div class="stat-tile">
@@ -1453,6 +1521,8 @@
       const BACKOFF_BASE_MS = 1000;
       const BACKOFF_MAX_MS = 30000;
       const LEAVE_TIMEOUT_MS = 1500;        // Max wait for a channel leave before reconnecting
+      const GRAVITY = 9.81;                 // m/s², used by the simulated accelerometer
+      const PEAK_HOLD_MS = 1000;            // Displayed acceleration peak is held this long
 
       // =========================================================================
       // 3. APPLICATION STATE
@@ -1482,6 +1552,9 @@
         sensorWatchTimerId: null,
         hasReceivedSensor: false,
         latestSensor: { a: 0, b: 0, g: 0 },
+        latestAcc: null,                      // [x, y, z] m/s² without gravity (null = not reported)
+        latestAccG: null,                     // [x, y, z] m/s² with gravity (null = not reported)
+        accPeak: null,                        // Max |latestAcc| since the last tick
         sendSeq: 0,
         sendTimestamps: [],
         wakeLockSentinel: null,
@@ -1499,12 +1572,20 @@
         calibration: null, // null or { a, b, g }
         displayAngles: { rx: 0, ry: 0, rz: 0 },
         hasDisplayInit: false,
+        peakHold: { v: null, t: 0 }, // Displayed acceleration peak (Sender or Viewer, whichever is active)
         toastTimerId: null,
       };
 
       // =========================================================================
       // 4. DOM REFERENCES
       // =========================================================================
+      // Acceleration readout ids: `${prefix}-acc-x`, `${prefix}-accg-x`, `${prefix}-acc-x-bar`, `${prefix}-acc-peak`
+      function accelDom(prefix) {
+        const el = id => document.getElementById(`${prefix}-${id}`);
+        const axis = k => ({ val: el(`acc-${k}`), sub: el(`accg-${k}`), bar: el(`acc-${k}-bar`) });
+        return { axes: [axis('x'), axis('y'), axis('z')], peak: el('acc-peak') };
+      }
+
       const dom = {
         httpsBanner: document.getElementById('https-banner'),
         healthBadge: document.getElementById('health-badge'),
@@ -1537,6 +1618,7 @@
         sAlphaBar: document.getElementById('s-alpha-bar'),
         sBetaBar: document.getElementById('s-beta-bar'),
         sGammaBar: document.getElementById('s-gamma-bar'),
+        sAccel: accelDom('s'),
         sRate: document.getElementById('s-rate'),
         sWakeLock: document.getElementById('s-wakelock'),
         sSeq: document.getElementById('s-seq'),
@@ -1573,6 +1655,7 @@
         vAlphaBar: document.getElementById('v-alpha-bar'),
         vBetaBar: document.getElementById('v-beta-bar'),
         vGammaBar: document.getElementById('v-gamma-bar'),
+        vAccel: accelDom('v'),
         vRate: document.getElementById('v-rate'),
         vJitter: document.getElementById('v-jitter'),
         vLastPkt: document.getElementById('v-last-pkt'),
@@ -1620,9 +1703,21 @@
         return Math.round((Number(n) || 0) * 10) / 10;
       }
 
+      function round2(n) {
+        return Math.round((Number(n) || 0) * 100) / 100;
+      }
+
       function formatDeg(n) {
         const val = round1(n);
         return `${val.toFixed(1)}°`;
+      }
+
+      // [x, y, z] rounded to 0.01 from a DeviceMotionEvent {x, y, z} or a packet array.
+      // null if missing or any part isn't a finite number (devices may report nulls; packets come from anyone).
+      function toVec3(v) {
+        if (!v) return null;
+        const xyz = Array.isArray(v) ? v : [v.x, v.y, v.z];
+        return xyz.length === 3 && xyz.every(Number.isFinite) ? xyz.map(round2) : null;
       }
 
       function clamp(val, min, max) {
@@ -2207,7 +2302,7 @@
       }
 
       // =========================================================================
-      // 10. SENDER MODE: GYROSCOPE CAPTURE & STRICT 10 HZ BROADCAST
+      // 10. SENDER MODE: GYROSCOPE & ACCELEROMETER CAPTURE, STRICT 10 HZ BROADCAST
       // =========================================================================
       function handleDeviceOrientation(event) {
         if (event.alpha === null && event.beta === null && event.gamma === null) {
@@ -2236,6 +2331,57 @@
         dom.sGammaBar.style.setProperty('--pct', `${clamp(((g + 90) / 180) * 100, 0, 100)}%`);
       }
 
+      function handleDeviceMotion(event) {
+        if (state.isSimulating) return; // The simulation supplies its own acceleration
+        const acc = toVec3(event.acceleration);
+        const accg = toVec3(event.accelerationIncludingGravity);
+        if (acc || accg) recordAccel(acc, accg);
+      }
+
+      // devicemotion fires ~60 Hz but we send at 10 Hz, so keep the peak between ticks
+      // (a short tap or bump would otherwise fall between two packets)
+      function recordAccel(acc, accg) {
+        state.latestAcc = acc;
+        state.latestAccG = accg;
+        if (acc) state.accPeak = Math.max(state.accPeak ?? 0, Math.hypot(...acc));
+      }
+
+      // Latest acceleration plus the peak since the previous call, which starts a new peak window.
+      // null until the accelerometer has reported.
+      function takeAccelSample() {
+        if (!state.latestAcc && !state.latestAccG) return null;
+        const pk = state.latestAcc ? round2(state.accPeak ?? Math.hypot(...state.latestAcc)) : null;
+        state.accPeak = null;
+        return { acc: state.latestAcc, accg: state.latestAccG, pk };
+      }
+
+      function clearAccel() {
+        state.latestAcc = null;
+        state.latestAccG = null;
+        state.accPeak = null;
+        state.peakHold = { v: null, t: 0 };
+      }
+
+      // Shared by Sender (local) and Viewer (incoming). Big value: without gravity; small line: with
+      // gravity; bar: ±10 m/s². The peak is held for PEAK_HOLD_MS so a short tap stays readable.
+      function renderAccel(view, sample, now) {
+        view.axes.forEach((el, i) => {
+          const lin = sample && sample.acc ? sample.acc[i] : null;
+          const withG = sample && sample.accg ? sample.accg[i] : null;
+          el.val.textContent = lin === null ? '—' : lin.toFixed(2);
+          el.sub.textContent = withG === null ? '' : `with g ${withG.toFixed(2)}`;
+          el.bar.style.setProperty('--pct', `${lin === null ? 50 : clamp(50 + lin * 5, 0, 100)}%`);
+        });
+
+        const pk = sample ? sample.pk : null;
+        const hold = state.peakHold;
+        if (pk === null || hold.v === null || pk >= hold.v || now - hold.t > PEAK_HOLD_MS) {
+          hold.v = pk;
+          hold.t = now;
+        }
+        view.peak.textContent = hold.v === null ? '—' : hold.v.toFixed(2);
+      }
+
       function startSimulation() {
         if (state.isSimulating) return;
         state.isSimulating = true;
@@ -2247,10 +2393,19 @@
           state.latestSensor.b = round1(Math.sin(t * 1.4) * 35);
           state.latestSensor.g = round1(Math.cos(t * 1.1) * 40);
           renderSenderAngles(state.latestSensor.a, state.latestSensor.b, state.latestSensor.g);
+
+          // A small wobble, plus gravity as the tilted phone would feel it (W3C axes: +9.81 on z
+          // lying flat screen up, +9.81 on y held upright)
+          const b = (state.latestSensor.b * Math.PI) / 180;
+          const g = (state.latestSensor.g * Math.PI) / 180;
+          const gravity = [-Math.sin(g) * Math.cos(b), Math.sin(b), Math.cos(g) * Math.cos(b)].map(v => v * GRAVITY);
+          const acc = [0.6 * Math.sin(t * 3.1), 0.4 * Math.cos(t * 2.3), 0.3 * Math.sin(t * 4.7)].map(round2);
+          recordAccel(acc, acc.map((v, i) => round2(v + gravity[i])));
         }, 50);
       }
 
       function stopSimulation() {
+        if (state.isSimulating) clearAccel(); // Drop simulated acceleration; real readings refill it
         state.isSimulating = false;
         if (state.simTimerId) {
           clearInterval(state.simTimerId);
@@ -2261,6 +2416,9 @@
 
       function emitGyroTick() {
         const now = Date.now();
+        const accel = takeAccelSample();
+        renderAccel(dom.sAccel, accel, now);
+
         // Only broadcast real (or explicitly simulated) readings; never a placeholder 0/0/0
         const hasData = state.hasReceivedSensor || state.isSimulating;
         if (state.isSubscribed && state.channel && hasData) {
@@ -2272,6 +2430,8 @@
             seq: state.sendSeq,
             ts: now,
           };
+          // Acceleration rides in the same packet (no extra messages) once the accelerometer reports
+          if (accel) Object.assign(payload, accel);
 
           // Fire-and-forget WebSocket broadcast (ack: false)
           try {
@@ -2296,6 +2456,16 @@
         dom.sRate.className = `stat-val ${hz >= 8 ? 'good' : hz > 0 ? 'warn' : ''}`;
       }
 
+      // iOS 13+ gates motion sensors behind requestPermission(); other browsers don't have it (null)
+      function requestSensorPermission(EventType) {
+        if (!EventType || typeof EventType.requestPermission !== 'function') return null;
+        try {
+          return Promise.resolve(EventType.requestPermission());
+        } catch (err) {
+          return Promise.reject(err);
+        }
+      }
+
       async function startStreaming() {
         clearModeAlert();
 
@@ -2306,13 +2476,15 @@
           return;
         }
 
-        // 1. Handle iOS 13+ DeviceOrientationEvent.requestPermission() directly inside click gesture
-        if (
-          typeof window.DeviceOrientationEvent !== 'undefined' &&
-          typeof window.DeviceOrientationEvent.requestPermission === 'function'
-        ) {
+        // 1. iOS 13+ sensor permission. Both requests must start inside the tap, before the first
+        //    await (which gives up the user gesture); iOS shows one Motion & Orientation prompt.
+        const orientationPermission = requestSensorPermission(window.DeviceOrientationEvent);
+        const motionPermission = requestSensorPermission(window.DeviceMotionEvent);
+        // Acceleration is optional: without motion access, packets just carry no acceleration
+        if (motionPermission) motionPermission.catch(() => {});
+        if (orientationPermission) {
           try {
-            const permission = await window.DeviceOrientationEvent.requestPermission();
+            const permission = await orientationPermission;
             if (permission !== 'granted') {
               showModeAlert('Motion & Orientation access was denied. Enable Safari Motion & Orientation access and try again.');
               return;
@@ -2331,9 +2503,11 @@
           if (!ok) return;
         }
 
-        // 3. Attach orientation listener
+        // 3. Attach orientation & motion listeners
         state.hasReceivedSensor = false;
+        clearAccel();
         window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+        window.addEventListener('devicemotion', handleDeviceMotion, true);
 
         // 4. Request Screen Wake Lock
         await acquireWakeLock();
@@ -2367,7 +2541,10 @@
         }
         clearTimeout(state.sensorWatchTimerId);
         window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+        window.removeEventListener('devicemotion', handleDeviceMotion, true);
         stopSimulation();
+        clearAccel();
+        renderAccel(dom.sAccel, null, Date.now());
         dom.senderSimBox.hidden = true;
 
         await releaseWakeLock();
@@ -2568,6 +2745,12 @@
         // Render immediately upon arrival
         applyViewerOrientation();
 
+        // Acceleration is optional (absent before the Sender's accelerometer reports)
+        const acc = toVec3(payload.acc);
+        const accg = toVec3(payload.accg);
+        const pk = acc && Number.isFinite(payload.pk) ? round2(payload.pk) : null;
+        renderAccel(dom.vAccel, acc || accg ? { acc, accg, pk } : null, now);
+
         // Automatically snap back to Live as soon as packets arrive
         if (state.streamHealth !== 'live') {
           state.streamHealth = 'live';
@@ -2664,6 +2847,7 @@
         state.hasDisplayInit = false;
         dom.btnResetCal.hidden = true;
         applyViewerOrientation();
+        renderAccel(dom.vAccel, null, Date.now());
         updateViewerStats(Date.now());
       }
 

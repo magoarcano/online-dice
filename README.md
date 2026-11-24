@@ -1,11 +1,11 @@
 # GyroLink
 
-Stream live gyroscope (device orientation) data from one phone to another at **10 Hz** over **Supabase Realtime Broadcast**. Delivery is fire-and-forget, the app reconnects on its own, and nothing is ever written to the database.
+Stream live gyroscope (device orientation) and accelerometer data from one phone to another at **10 Hz** over **Supabase Realtime Broadcast**. Delivery is fire-and-forget, the app reconnects on its own, and nothing is ever written to the database.
 
 **Live:** https://magoarcano.github.io/online-dice/
 
-- **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma), and broadcasts the latest reading every 100 ms.
-- **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, with rate, jitter, packet-age and dropped-packet stats.
+- **Sender** (the phone that moves) hosts the room. It shows the room's QR code and share link, counts connected Viewers, reads `DeviceOrientationEvent` (alpha / beta / gamma) and `DeviceMotionEvent` (acceleration), and broadcasts the latest reading every 100 ms.
+- **Viewers** join the Sender's room, as many as you like. Each one mirrors the orientation on a 3D phone model, shows the acceleration, and has rate, jitter, packet-age and dropped-packet stats.
 
 The whole app is one static file, `index.html`, with no build step. (The repo is named `online-dice` for historical reasons; the app is GyroLink.)
 
@@ -41,10 +41,10 @@ The Sender keeps its room across reloads, so Viewers stay paired. **New** moves 
 | Requirement | Why |
 | --- | --- |
 | **HTTPS** (or `localhost`) | Browsers only expose `DeviceOrientationEvent` in secure contexts. GitHub Pages provides HTTPS. |
-| iOS 13+ | Motion permission via `DeviceOrientationEvent.requestPermission()`, which needs a tap. |
+| iOS 13+ | Motion permission via `DeviceOrientationEvent.requestPermission()` and `DeviceMotionEvent.requestPermission()`, which need a tap. iOS shows one prompt for both. |
 | Screen Wake Lock (iOS 16.4+, Chrome 84+) | Keeps both screens on. Without it the phone auto-locks and the stream stops. The app still works where it's unsupported. |
 
-Desktop browsers have no gyroscope. After about 1.6 s the Sender offers **Enable Simulated Gyro (Test)**, which is useful for testing with one phone, or none.
+Desktop browsers have no gyroscope. After about 1.6 s the Sender offers **Enable Simulated Gyro (Test)**, which is useful for testing with one phone, or none. It simulates acceleration too, with gravity matching the simulated tilt.
 
 ---
 
@@ -70,6 +70,7 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects, and presence is re-tracked. Switch Mode during an in-flight connect leaves no stray channel. Tapping Start doesn't restart the Sender's auto-connect.
 - **3D mirror:** feeds poses through the Viewer and compares the actual `.phone-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
+- **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, and simulated gravity matching the simulated tilt.
 - **Settings:** wake lock requested and re-requested, `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
 
 If a check throws, the run reports a crash and exits 1, never a silent pass.
@@ -88,7 +89,7 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 | --- | --- |
 | Channel | `gyrolink-room-<CODE>` (public), config `broadcast: { ack: false, self: false }` |
 | Event | `gyro` |
-| Payload | `{ a, b, g, seq, ts }`: degrees rounded to 0.1, `seq` increases by 1 per sent packet, `ts` = sender `Date.now()` |
+| Payload | `{ a, b, g, seq, ts, acc, accg, pk }`: degrees rounded to 0.1, `seq` increases by 1 per sent packet, `ts` = sender `Date.now()`. Acceleration in m/s², rounded to 0.01, W3C device axes: `acc` = `[x, y, z]` without gravity, `accg` = `[x, y, z]` with gravity (about `[0, 0, 9.81]` lying flat, screen up), `pk` = peak \|`acc`\| since the previous packet. `acc`/`accg`/`pk` are left out until the accelerometer reports. `acc` and `pk` are `null` on devices that only report acceleration with gravity. |
 | Presence | Viewers `track({ role: 'viewer' })` under a stable per-tab key (`config.presence.key`) and re-track on every (re)join. The Sender listens for `sync` and counts keys with a viewer entry. Presence is in-memory on the Realtime server, with no DB writes. |
 | Room code | 4 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `I L O 0 1`). Created by the **Sender** and saved under `gyrolink_sender_room`. |
 | Pairing URL | `?room=CODE#u=<supabase-url>&k=<key>` opens **Viewer** mode and joins `CODE`. Credentials go in the hash, so they never reach a server. They're cleared from the address bar on load and saved under `gyrolink_supabase_url` / `gyrolink_supabase_anon_key`. |
@@ -96,14 +97,16 @@ It can't cover real browsers, sensors or Supabase; use the manual checklist belo
 ### Sender
 - Hosts the room. On entering Sender mode it reuses or creates its room code, renders the QR code and connects right away, so the Viewer count is live before streaming starts. Start Streaming reuses that connection, even while it's still joining.
 - `deviceorientation` updates the latest reading. A `setInterval(100 ms)` loop broadcasts it, but only after the first real (or simulated) reading, so it never sends a placeholder `0/0/0`.
+- `devicemotion` (about 60 Hz) updates the latest acceleration and tracks the peak between ticks. Each packet carries the latest sample plus that peak, so a short tap or bump that falls between two packets still reaches the Viewers. Acceleration rides in the same packet, so it adds bytes, not messages.
 - Sending is gated on `state.isSubscribed`. Without that gate, `channel.send()` would silently fall back to REST POSTs.
-- The iOS permission request must be the **first `await`** in the Start click handler, or iOS loses the user gesture and refuses.
+- Both iOS permission requests (orientation and motion) must **start before the first `await`** in the Start click handler, or iOS loses the user gesture and refuses. Motion access is optional: if it fails, the Sender streams orientation only.
 
 ### Viewer
 - Joins with `joinViewerRoom()` from a pairing link or a typed code. Until it has joined, the badge shows **Not Joined**. Switching rooms resets its stats and calibration.
 - Renders each packet as it arrives. A watchdog every 120 ms marks the stream **Stalled** after 500 ms without packets and **Sender Offline** after 2000 ms.
 - **Jitter** is the mean absolute deviation from 100 ms over the last 25 gaps between packets. **Drops** are counted from gaps in `seq`; a lower `seq` means the Sender restarted, which resets the count.
 - **3D model:** `rotateZ(-α) rotateX(-β) rotateY(γ)`. That's the W3C intrinsic Z-X′-Y″ order, adjusted for CSS's downward Y axis, with the camera looking down at a phone lying flat. The angles are unwrapped so the CSS transition never spins the long way around through 360°.
+- **Acceleration:** each axis card shows acceleration without gravity, with the with-gravity value underneath. **Peak** holds the highest `pk` for 1 s so a short tap stays readable. Malformed values show `—`. Calibrate doesn't affect acceleration.
 - **Calibrate** subtracts each angle separately. That's approximate and fine for small tilts, but it distorts at large ones.
 
 ### Reconnection (script section 8: `connectToRoom`)
@@ -119,7 +122,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
+`1` config placeholders · `2` constants · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`) · `7` health badge · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room) & viewer (3D, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`) · `13` visibility & network recovery · `14` event listeners · `15` init.
 
 ---
 
@@ -134,11 +137,12 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ## Limits & costs
 
-- **Quota:** each packet counts as 1 message sent plus 1 per viewer receiving it. One Sender and one Viewer is about 20 msg/s, or about 1.7 M messages per day, and **each extra Viewer adds about 10 msg/s** (~0.86 M/day). Presence adds only a few messages when Viewers join or leave. Check your plan's monthly Realtime message quota; at the time of writing the free plan included 2 M per month.
+- **Quota:** each packet counts as 1 message sent plus 1 per viewer receiving it. One Sender and one Viewer is about 20 msg/s, or about 1.7 M messages per day, and **each extra Viewer adds about 10 msg/s** (~0.86 M/day). Presence adds only a few messages when Viewers join or leave. Acceleration doesn't add messages; it makes each one about 60 bytes bigger. Check your plan's monthly Realtime message quota; at the time of writing the free plan included 2 M per month.
 - **Security model:** channels are public, the room code has about 920 k combinations, and shared links contain the anon key. Anyone with the link can listen in or send fake packets. That's fine for demos. For anything sensitive, move to private channels with RLS on `realtime.messages`.
 
 ## Known gaps / TODO
 
+- [ ] Check the acceleration axes and signs on real iOS and Android phones. iOS and Android have been known to disagree on the sign of `accelerationIncludingGravity`, and the app passes values through unchanged.
 - [ ] Check the 3D tilt directions on real devices. `npm test` checks the math against the spec, but no real devices have been tested yet.
 - [ ] Calibration uses per-angle subtraction; quaternions would be correct at large tilts.
 - [ ] Viewers can't tell an idle Sender (online, not streaming) from an absent one. The Sender could also track presence.
@@ -152,3 +156,4 @@ This matters because `client.channel(topic)` **returns any existing channel with
 3. Toggle airplane mode on either phone. It reconnects after the network returns.
 4. Leave the Viewer untouched for over 1 minute. The screen stays on (wake lock).
 5. Paste a `service_role` key into settings. It's rejected.
+6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
