@@ -1074,9 +1074,10 @@
       position: absolute;
       left: 0;
       right: 0;
-      top: 33.333%;
-      transform: translateY(-50%);
+      top: calc(33.333% - 0.5em); /* no transform: WebKit can ignore a parent's backface-visibility for transformed children */
       text-align: center;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
       font-family: var(--font-mono, ui-monospace, monospace);
       font-weight: 700;
       font-size: calc(var(--d20-edge) * 0.3);
@@ -1087,26 +1088,26 @@
     .d20-6 .d20-num,
     .d20-9 .d20-num { text-decoration: underline; }
 
-    .d20-1 { transform: rotateZ(0deg) rotateX(0deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94.5%); }
-    .d20-2 { transform: rotateZ(-142.239deg) rotateX(109.471deg) rotateZ(82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 85.3%); }
-    .d20-3 { transform: rotateZ(97.761deg) rotateX(109.471deg) rotateZ(-37.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 82.4%); }
-    .d20-4 { transform: rotateZ(-97.761deg) rotateX(109.471deg) rotateZ(37.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 88.5%); }
-    .d20-5 { transform: rotateZ(60deg) rotateX(138.19deg) rotateZ(-120deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 82.3%); }
-    .d20-6 { transform: rotateZ(-22.239deg) rotateX(109.471deg) rotateZ(82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 89.8%); }
-    .d20-7 { transform: rotateZ(0deg) rotateX(41.81deg) rotateZ(60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 95.0%); }
-    .d20-8 { transform: rotateZ(120deg) rotateX(41.81deg) rotateZ(-60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 89.9%); }
-    .d20-9 { transform: rotateZ(22.239deg) rotateX(109.471deg) rotateZ(-82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87.5%); }
-    .d20-10 { transform: rotateZ(142.239deg) rotateX(109.471deg) rotateZ(-82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 81.5%); }
-    .d20-11 { transform: rotateZ(-37.761deg) rotateX(70.529deg) rotateZ(22.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94.5%); }
-    .d20-12 { transform: rotateZ(-157.761deg) rotateX(70.529deg) rotateZ(142.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 88.5%); }
-    .d20-13 { transform: rotateZ(-60deg) rotateX(138.19deg) rotateZ(120deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 86.1%); }
-    .d20-14 { transform: rotateZ(180deg) rotateX(138.19deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 81.0%); }
-    .d20-15 { transform: rotateZ(157.761deg) rotateX(70.529deg) rotateZ(-142.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 86.2%); }
-    .d20-16 { transform: rotateZ(-120deg) rotateX(41.81deg) rotateZ(60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 93.7%); }
-    .d20-17 { transform: rotateZ(82.239deg) rotateX(70.529deg) rotateZ(-97.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87.5%); }
-    .d20-18 { transform: rotateZ(-82.239deg) rotateX(70.529deg) rotateZ(97.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 93.6%); }
-    .d20-19 { transform: rotateZ(37.761deg) rotateX(70.529deg) rotateZ(-22.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 90.7%); }
-    .d20-20 { transform: rotateZ(120deg) rotateX(180deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 81.5%); }
+    .d20-1 { transform: rotateZ(0deg) rotateX(0deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-2 { transform: rotateZ(-142.239deg) rotateX(109.471deg) rotateZ(82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-3 { transform: rotateZ(97.761deg) rotateX(109.471deg) rotateZ(-37.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-4 { transform: rotateZ(-97.761deg) rotateX(109.471deg) rotateZ(37.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-5 { transform: rotateZ(60deg) rotateX(138.19deg) rotateZ(-120deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-6 { transform: rotateZ(-22.239deg) rotateX(109.471deg) rotateZ(82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-7 { transform: rotateZ(0deg) rotateX(41.81deg) rotateZ(60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-8 { transform: rotateZ(120deg) rotateX(41.81deg) rotateZ(-60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-9 { transform: rotateZ(22.239deg) rotateX(109.471deg) rotateZ(-82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-10 { transform: rotateZ(142.239deg) rotateX(109.471deg) rotateZ(-82.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-11 { transform: rotateZ(-37.761deg) rotateX(70.529deg) rotateZ(22.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-12 { transform: rotateZ(-157.761deg) rotateX(70.529deg) rotateZ(142.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 87%); }
+    .d20-13 { transform: rotateZ(-60deg) rotateX(138.19deg) rotateZ(120deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-14 { transform: rotateZ(180deg) rotateX(138.19deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-15 { transform: rotateZ(157.761deg) rotateX(70.529deg) rotateZ(-142.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-16 { transform: rotateZ(-120deg) rotateX(41.81deg) rotateZ(60deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-17 { transform: rotateZ(82.239deg) rotateX(70.529deg) rotateZ(-97.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 80%); }
+    .d20-18 { transform: rotateZ(-82.239deg) rotateX(70.529deg) rotateZ(97.761deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-19 { transform: rotateZ(37.761deg) rotateX(70.529deg) rotateZ(-22.239deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
+    .d20-20 { transform: rotateZ(120deg) rotateX(180deg) rotateZ(0deg) translateZ(var(--d20-inradius)); background: hsl(214 32% 94%); }
 
     .pip {
       width: calc(var(--die-size) * 0.17);
@@ -1859,7 +1860,7 @@
         url: 'gyrolink_supabase_url',
         key: 'gyrolink_supabase_anon_key',
         room: 'gyrolink_sender_room', // Sender keeps its room across reloads so Viewers stay paired
-        model: 'gyrolink_viewer_model', // Viewer's 3D model: 'phone' | 'die'
+        model: 'gyrolink_viewer_model', // Viewer's 3D model: 'phone' | 'die' | 'd20'
         link: 'gyrolink_sender_link', // Which page the Sender's QR code / link opens: 'viewer' | 'die' | 'd20'
       };
       const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -3039,7 +3040,7 @@
         url.search = '';
         url.hash = '';
         url.searchParams.set('room', state.roomCode);
-        if (kind !== 'viewer') url.searchParams.set('view', kind); // Opens the observer's die page ('die' | 'd20')
+        if (DIE_KINDS.includes(kind)) url.searchParams.set('view', kind); // Opens the observer's die page ('die' | 'd20')
 
         if (includeCreds) {
           const creds = getCredentials();
@@ -3218,7 +3219,7 @@
         for (let n = 2; n <= 20; n++) {
           if (die.faces[n] && height(n) > height(best)) best = n;
         }
-        if (Object.hasOwn(die.faces, current) && height(best) - height(current) < die.hysteresis) return current;
+        if (die.faces[current] !== undefined && height(best) - height(current) < die.hysteresis) return current;
         return best;
       }
 

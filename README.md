@@ -38,14 +38,6 @@ A Viewer can also tap **View Live Data** and type the room code by hand. It then
 
 The Sender keeps its room across reloads, so Viewers stay paired. **New** moves to a fresh room, and Viewers must then re-join with the new code. A Viewer's address bar keeps `?room=CODE`, so reloading a Viewer rejoins the same room.
 
-## D20 box
-
-For a 20-sided die, put the Sender phone inside a box shaped like a D20 and switch the Viewer (or the stage) to **D20**.
-
-- **Mounting:** lay the phone on its back against face **20**, with its top edge pointing at a corner of that face. The box's edges should be at least about 10.5 cm inside for an iPhone 15-sized phone. The phone's screen then looks out of face **1**.
-- **Numbering:** rest the box on each face in turn, write on that face the number the **D20** tab shows as **On Top**, and check that all 20 numbers came up exactly once. Opposite faces add up to 21.
-- A phone mounted any other way reads wrong, because the Viewer assumes the faces sit where `D20_FACES` says.
-
 ### Requirements
 
 | Requirement | Why |
@@ -55,6 +47,14 @@ For a 20-sided die, put the Sender phone inside a box shaped like a D20 and swit
 | Screen Wake Lock (iOS 16.4+, Chrome 84+) | Keeps both screens on. Without it the phone auto-locks and the stream stops. The Sender asks when you tap Start Streaming; Viewers and the die page ask on load. If the browser drops the lock while the page is on screen, the app asks again after 1 s. If it refuses, the next tap anywhere asks again. The app still works where it's unsupported. For long unattended runs, such as a phone sealed in a box, also set the device's Auto-Lock to Never and turn off Low Power Mode, which the page can't override. |
 
 Desktop browsers have no gyroscope. After about 1.6 s the Sender offers **Enable Simulated Gyro (Test)**, which is useful for testing with one phone, or none. It simulates acceleration too, with gravity matching the simulated tilt.
+
+## D20 box
+
+For a 20-sided die, put the Sender phone inside a box shaped like a D20 and switch the Viewer's stage to **D20**.
+
+- **Mounting:** the phone lies parallel to face **20**, centred in the box, with its back toward **20** and its screen toward **1**, and its top edge pointing toward one corner of face **20**. Hold it with padding or a cradle so it can't shift or turn. The box's edges should be at least about 10.5 cm inside for an iPhone 15-sized phone, centred.
+- **Numbering:** with the Viewer on the **D20** tab and not calibrated (a fresh Viewer, or tap Reset Offset), rest the box on a face and write the **On Top** number on the face now facing **up**, not the one on the table. Repeat until all 20 faces are numbered. Opposite faces add up to 21. Then check: rest the box on several faces, and each time the number on its top face matches **On Top**.
+- A phone mounted any other way reads wrong, because the Viewer assumes the faces sit where `D20_FACES` says.
 
 ---
 
@@ -80,10 +80,10 @@ npm test        # same as: node tests/harness.test.js   (Node 18+, no dependenci
 - **Reconnects:** `visibilitychange` + `online` firing together leave one channel and one handler, with no extra reconnects, and presence is re-tracked. Switch Mode during an in-flight connect leaves no stray channel. Tapping Start doesn't restart the Sender's auto-connect.
 - **3D mirror:** feeds poses through the Viewer and compares the actual `.model-3d` CSS transform (parsed from `index.html`) with the W3C rotation matrix.
 - **Die:** the `.die-N` faces (parsed from `index.html`) sit on the specified sides, the big number is right for each side resting up and matches the face the drawn die points at the camera across 120 poses, it doesn't flicker near an edge, Calibrate re-zeroes it, and the Phone / D6 / D20 choice is saved.
-- **D20:** the `.d20-N` triangles (parsed from `index.html`) close into an icosahedron, 1 faces the screen side and 20 the back, opposite faces add up to 21, every corner sums to 52 or 53, and a corner of 20 lies along the top edge. Each model shows only its own faces, each face reads its own number when it is on top, the number matches the drawn D20 across a grid of poses, it holds near an edge and on a corner, switching dice recomputes at once, Calibrate re-zeroes it, the choice is remembered, and an unknown saved model falls back to the phone.
+- **D20:** the `.d20-N` triangles (parsed from `index.html`) close into an icosahedron, 1 faces the screen side and 20 the back, opposite faces add up to 21, every corner sums to 52 or 53, a corner of 20 lies along the top edge, and neighbouring faces differ in shade by at least 5 % lightness. Each model shows only its own faces, each face reads its own number when it is on top, the number matches the drawn D20 across a grid of poses, it holds near an edge and on a corner, switching dice recomputes at once, Calibrate re-zeroes it, the choice is remembered, and an unknown saved model falls back to the phone.
 - **Sending:** no packets before the first sensor reading, and payloads carry the reading.
 - **Acceleration:** with and without gravity in the payload, a tap between two packets caught as the peak, gravity-only devices, malformed values shown as `—`, the Viewer's 1 s peak hold, both iOS permission requests made inside the tap, iOS signs flipped to the W3C convention, and simulated gravity matching the simulated tilt.
-- **Die page:** a `view=die` or `view=d20` link opens it with that die forced but not saved (the D20 page shows the right top face), the title "Die", and the status wording from Waiting for the die through Live, Weak signal and Signal lost. The Sender counts it, the normal Viewer on the same phone is unchanged, `view=die` without a valid room opens the normal app, and missing credentials show only the settings until they're saved.
+- **Die page:** a `view=die` or `view=d20` link opens it with that die forced but not saved (the D20 page shows the right top face), the title "Die", and the status wording from Waiting for the die through Live, Weak signal and Signal lost. The Sender counts it, the normal Viewer on the same phone is unchanged, `view=die` or `view=d20` without a valid room opens the normal app, and missing credentials show only the settings until they're saved.
 - **Settings:** wake lock requested, re-requested when the page returns, when the browser drops it while visible (not while hidden), and on the next tap after a refusal (one request for two taps); stopping the stream releases it for good; `heartbeatIntervalMs` passed to the client, secret keys rejected and purged, anon/publishable keys accepted.
 
 If a check throws, the run reports a crash and exits 1, never a silent pass.
@@ -141,7 +141,7 @@ This matters because `client.channel(topic)` **returns any existing channel with
 
 ### Code map
 `index.html` = CSS, then markup (three views: selector / sender / viewer), then one inline script, organized in numbered sections:
-`1` config placeholders · `2` constants (incl. `D6_FACES` / `D20_FACES` / `DICE`, the dice and their hysteresis, and `STREAM_LABELS`, the Viewer / die page status wording) · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`, `view=die`) · `7` health badge & status pill · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room, Viewer | Die switch) & viewer (3D, die, D20 & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`; die page title) · `13` visibility & network recovery · `14` event listeners · `15` init (decides the die page; an ignored `view=die` is dropped from the URL).
+`1` config placeholders · `2` constants (incl. `D6_FACES` / `D20_FACES` / `DICE`, the dice and their hysteresis, and `STREAM_LABELS`, the Viewer / die page status wording) · `3` state · `4` DOM refs · `5` utils · `6` credentials & URL parsing (`isSecretKey`, `validateCredentials`, `view=die` / `view=d20`) · `7` health badge & status pill · `8` Realtime transport, presence count & backoff · `9` wake lock · `10` sender streaming (orientation, acceleration & peak, simulation) · `11` room pairing (Sender: QR, link, saved room, Viewer | D6 | D20 switch) & viewer (3D, die, D20 & top face, watchdog) · `12` mode switching (`enterSenderMode`, `enterViewerMode`, `joinViewerRoom`; die page title) · `13` visibility & network recovery · `14` event listeners · `15` init (decides the die page; an ignored `view=die` / `view=d20` is dropped from the URL).
 
 ---
 
@@ -177,5 +177,5 @@ This matters because `client.channel(topic)` **returns any existing channel with
 5. Paste a `service_role` key into settings. It's rejected.
 6. With the Sender lying flat and screen up, **with g** on the Viewer's Z card reads about +9.81. Tap the Sender on the table: the Viewer's **Peak** jumps and holds for about 1 s.
 7. Switch the Viewer to **D6**. Lay the Sender flat, screen up: **On Top** reads 1, and the die shows its 1 face. Screen down: 6. Stand it on its bottom edge: 2. On its top edge: 5. Right edge up: 4. Left edge up: 3. Reload the Viewer: it stays on D6.
-8. Number a D20 box as described in **D20 box**, with the Viewer on **D20**. Rest the box on each face in turn: each face reads once and steadily, and all 20 numbers come up.
+8. Number a D20 box as described in **D20 box**, with the Viewer on **D20**. Rest the box on a face and number the face now facing up with **On Top**, until all 20 are numbered; then rest it on several faces: the number on top matches **On Top** each time, steadily.
 9. On the Sender, flip the switch above the QR code to **D6** and scan it with another phone. Then do the same with **D20**: the D20 shows instead. Only the die, the number and the status show, in portrait and in landscape, and **Viewers Watching** counts it. Tilt the Sender: the die follows. Leave the die phone untouched for over 1 minute: the screen stays on. Lock and unlock it: it recovers on its own.
