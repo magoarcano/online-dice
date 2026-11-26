@@ -592,6 +592,18 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     check("d20: a corner of 20 points along the phone's top edge", verts.some(v => v.faces.includes(20) && Math.abs(v.p[0]) < 1e-3 && v.p[1] > 0));
     const sums = verts.map(v => v.faces.reduce((s, n) => s + n, 0));
     check('d20: every corner sums to 52 or 53', sums.every(s => s === 52 || s === 53), sums.join());
+    // Shading: neighbouring faces (normals 41.81 degrees apart, dot 0.7454) must be told apart by lightness
+    {
+      const light = {};
+      for (const [, n, l] of html.matchAll(/\.d20-(\d+)\s*\{[^}]*?background:\s*hsl\(\s*[\d.]+\s+[\d.]+%\s+([\d.]+)%\s*\)/g)) light[n] = +l;
+      let pairs = 0, minDiff = Infinity;
+      for (const i of nums) for (const j of nums) {
+        if (j <= i) continue;
+        const dot = N[i].reduce((s, x, k) => s + x * N[j][k], 0);
+        if (Math.abs(dot - 0.7454) < 0.01) { pairs++; minDiff = Math.min(minDiff, Math.abs(light[i] - light[j])); }
+      }
+      check('d20: neighbouring faces have clearly different shades', Object.keys(light).length === 20 && pairs === 30 && minDiff >= 5, `lightness=${Object.keys(light).length} pairs=${pairs} min diff=${minDiff}`);
+    }
 
     // CSS: which parts each model shows. Every `.stage-container[data-model="X"] .cls` / `:not([data-model="X"]) .cls`
     // selector in a display: none rule is read; one that doesn't fit the pattern fails the check instead of being ignored.
