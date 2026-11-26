@@ -259,6 +259,13 @@ const results = [];
 const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? '  — ' + detail : ''}`);
 
 (async () => {
+  // 0. Markup: every id in index.html is unique (the fake DOM keeps one element per id, so a repeat would hide here but break getElementById in a browser)
+  {
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]);
+    const dupes = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    check('every element id in index.html is unique', ids.length > 50 && dupes.length === 0, dupes.join());
+  }
+
   // 1. Viewer opened from a pairing link joins the Sender's room
   {
     const t = boot({ search: '?room=AB12' });
