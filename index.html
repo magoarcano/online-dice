@@ -1544,7 +1544,8 @@
             <div class="qr-wrapper">
               <div class="model-toggle" role="group" aria-label="QR code opens">
                 <button type="button" id="btn-link-viewer" class="model-toggle-btn" aria-pressed="true">Viewer</button>
-                <button type="button" id="btn-link-die" class="model-toggle-btn" aria-pressed="false">Die</button>
+                <button type="button" id="btn-link-die" class="model-toggle-btn" aria-pressed="false">D6</button>
+                <button type="button" id="btn-link-d20" class="model-toggle-btn" aria-pressed="false">D20</button>
               </div>
               <div id="qr-container" class="qr-box" aria-label="QR code that opens Viewer mode for this room"></div>
               <p id="qr-caption" class="muted text-center">Scan with each Viewer phone to join this room.</p>
@@ -1859,7 +1860,7 @@
         key: 'gyrolink_supabase_anon_key',
         room: 'gyrolink_sender_room', // Sender keeps its room across reloads so Viewers stay paired
         model: 'gyrolink_viewer_model', // Viewer's 3D model: 'phone' | 'die'
-        link: 'gyrolink_sender_link', // Which page the Sender's QR code / link opens: 'viewer' | 'die'
+        link: 'gyrolink_sender_link', // Which page the Sender's QR code / link opens: 'viewer' | 'die' | 'd20'
       };
       const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
       const SEND_INTERVAL_MS = 100;         // Strictly 10 Hz
@@ -1932,7 +1933,7 @@
       // =========================================================================
       const state = {
         mode: 'selector', // 'selector' | 'sender' | 'viewer'
-        diePage: false,   // Viewer opened from a ?view=die link: only the die, its top face and the status
+        diePage: false,   // false | 'die' | 'd20': Viewer opened from a ?view=die / ?view=d20 link: only the die, its top face and the status
         roomCode: '',
         supabaseClient: null,
         channel: null,
@@ -1947,7 +1948,7 @@
         // Stable per tab, so a Viewer that reconnects is still counted once by the Sender
         presenceKey: `viewer-${Math.random().toString(36).slice(2, 10)}`,
         viewerCount: null,                    // Sender only: Viewers present in the room (null = unknown)
-        pairingLink: 'viewer',                // Sender only: page its QR code / link opens ('viewer' | 'die')
+        pairingLink: 'viewer',                // Sender only: page its QR code / link opens ('viewer' | 'die' | 'd20')
 
         // Sender state
         isStreaming: false,
@@ -2044,6 +2045,7 @@
         btnNewRoom: document.getElementById('btn-new-room'),
         btnLinkViewer: document.getElementById('btn-link-viewer'),
         btnLinkDie: document.getElementById('btn-link-die'),
+        btnLinkD20: document.getElementById('btn-link-d20'),
         qrContainer: document.getElementById('qr-container'),
         qrCaption: document.getElementById('qr-caption'),
         chkIncludeCreds: document.getElementById('chk-include-creds'),
@@ -2264,7 +2266,8 @@
         const incomingUrl = (hashParams.get('u') || searchParams.get('u') || '').trim();
         const incomingKey = (hashParams.get('k') || searchParams.get('k') || '').trim();
         const incomingRoom = sanitizeRoomCode(searchParams.get('room') || hashParams.get('room') || '');
-        const diePage = searchParams.get('view') === 'die';
+        const view = searchParams.get('view');
+        const diePage = DIE_KINDS.includes(view) ? view : false; // 'die' (cube) | 'd20' | false
 
         let credsImported = false;
         if (incomingUrl && incomingKey && validateCredentials(incomingUrl, incomingKey).ok) {
@@ -3036,7 +3039,7 @@
         url.search = '';
         url.hash = '';
         url.searchParams.set('room', state.roomCode);
-        if (kind === 'die') url.searchParams.set('view', 'die'); // Opens the observer's die page
+        if (kind !== 'viewer') url.searchParams.set('view', kind); // Opens the observer's die page ('die' | 'd20')
 
         if (includeCreds) {
           const creds = getCredentials();
@@ -3071,11 +3074,12 @@
         window.history.replaceState(null, '', url.toString());
       }
 
-      // Sender: which page the QR code and link open. Anything but 'die' means the normal Viewer.
+      // Sender: which page the QR code and link open. Anything but a die kind means the normal Viewer.
       function applyPairingLink(kind) {
-        state.pairingLink = kind === 'die' ? 'die' : 'viewer';
+        state.pairingLink = DIE_KINDS.includes(kind) ? kind : 'viewer';
         dom.btnLinkViewer.setAttribute('aria-pressed', String(state.pairingLink === 'viewer'));
         dom.btnLinkDie.setAttribute('aria-pressed', String(state.pairingLink === 'die'));
+        dom.btnLinkD20.setAttribute('aria-pressed', String(state.pairingLink === 'd20'));
       }
 
       function setPairingLink(kind) {
@@ -3086,7 +3090,7 @@
 
       function renderRoomQR() {
         const code = state.roomCode;
-        const forDie = state.pairingLink === 'die';
+        const forDie = state.pairingLink !== 'viewer';
         dom.qrContainer.setAttribute('aria-label', forDie
           ? "QR code that opens the die page for this room"
           : 'QR code that opens Viewer mode for this room');
@@ -3656,7 +3660,7 @@
       // Share sheet where available (reaches remote Viewers via any messaging app), else clipboard
       dom.btnCopyLink.addEventListener('click', async () => {
         const link = buildPairingUrl(dom.chkIncludeCreds.checked);
-        const forDie = state.pairingLink === 'die';
+        const forDie = state.pairingLink !== 'viewer';
         if (typeof navigator.share === 'function') {
           try {
             // The die link may be shared straight to the observer: no app name or room code in its title
@@ -3681,6 +3685,7 @@
 
       dom.btnLinkViewer.addEventListener('click', () => setPairingLink('viewer'));
       dom.btnLinkDie.addEventListener('click', () => setPairingLink('die'));
+      dom.btnLinkD20.addEventListener('click', () => setPairingLink('d20'));
 
       // A refused wake lock (e.g. the die page asks on load, without a tap) gets another try on
       // the next tap anywhere; a tap counts as the user gesture some browsers want.
@@ -3707,7 +3712,7 @@
 
         const { incomingRoom, credsImported, diePage } = ingestCredentialsFromUrl();
         const opensRoom = incomingRoom.length === 4;
-        state.diePage = diePage && opensRoom; // view=die without a valid room opens the normal app
+        state.diePage = opensRoom ? diePage : false; // view=die / view=d20 without a valid room opens the normal app
         if (state.diePage) dom.appShell.dataset.page = 'die';
         if (diePage && !state.diePage) {
           // Ignored view=die: drop it, or a room joined later would reload as the die page
@@ -3729,8 +3734,8 @@
         }
 
         dom.btnCopyLink.textContent = typeof navigator.share === 'function' ? 'Share Link' : 'Copy Link';
-        // The die page always shows the die, without changing this phone's saved Viewer choice
-        applyViewerModel(state.diePage ? 'die' : localStorage.getItem(STORAGE_KEYS.model));
+        // The die page always shows its die (cube or D20), without changing this phone's saved Viewer choice
+        applyViewerModel(state.diePage || localStorage.getItem(STORAGE_KEYS.model));
 
         // A pairing link (?room=XXXX) opens Viewer mode and joins the Sender's room
         if (opensRoom) {

@@ -744,6 +744,47 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await sender.els['btn-sender-back'].fire('click');
   }
 
+  // 10b. D20 die page: view=d20 opens the die page with the 20-sided die
+  {
+    const shell = p => (p.els['app-shell'] || { dataset: {} }).dataset;
+    const server = createServer();
+    const sender = boot({ server });
+    await sender.els['btn-choose-sender'].fire('click');
+    await sleep(100);
+    const room = sender.text('s-room-code');
+    const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const d = boot({ server, store, search: `?room=${room}&view=d20` });
+    await sleep(150);
+    check('d20 link opens the die page with the d20', shell(d).page === 'die' && d.els['v-stage'].dataset.model === 'd20' && d.text('health-badge-text') === 'Connected', `${shell(d).page} ${d.els['v-stage'].dataset.model}`);
+    check('d20 page does not save a Viewer model', !store.has('gyrolink_viewer_model'));
+    check('d20 page title is Die and the URL keeps room and view', d.doc.title === 'Die' && d.location.search === `?room=${room}&view=d20`, `${d.doc.title} ${d.location.search}`);
+    check('sender counts the d20 page as a viewer', sender.text('s-viewers') === '1', sender.text('s-viewers'));
+
+    await sender.els['btn-toggle-stream'].fire('click');
+    await sender.fireWin('deviceorientation', { alpha: 0, beta: 25, gamma: 0 });
+    await sleep(350);
+    check('d20 page shows Live and the top face', d.text('v-stream-pill') === 'Live' && d.text('v-die-top') === '7', `${d.text('v-stream-pill')} ${d.text('v-die-top')}`);
+    await sender.els['btn-toggle-stream'].fire('click');
+
+    const v = boot({ server, store, search: `?room=${room}` });
+    await sleep(150);
+    check('normal Viewer after the d20 page keeps the phone', v.els['v-stage'].dataset.model === 'phone', v.els['v-stage'].dataset.model);
+
+    for (const search of ['?view=d20', '?room=ab&view=d20']) {
+      const x = boot({ search });
+      check(`${search} opens the normal app`, shell(x).page !== 'die' && x.text('health-badge-text') === 'Idle', x.text('health-badge-text'));
+    }
+    const stray = boot({ search: '?view=d20' });
+    await stray.els['btn-choose-viewer'].fire('click');
+    stray.els['viewer-room-input'].value = 'CD34';
+    await stray.els['viewer-join-form'].fire('submit');
+    await sleep(100);
+    check('?view=d20 without a room is dropped after joining by hand', stray.location.search === '?room=CD34', stray.location.search);
+
+    for (const p of [d, v, stray]) await p.els['btn-viewer-back'].fire('click');
+    await sender.els['btn-sender-back'].fire('click');
+  }
+
   // 11. Sender: Viewer | Die switch picks which page the QR code and link open
   {
     // Elements exist in the fake DOM only once the script looks them up
@@ -789,6 +830,55 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     await (t2.els['btn-link-viewer'] || boot.noEl).fire('click');
     check('Viewer switch goes back to the Viewer link', store.get('gyrolink_sender_link') === 'viewer' && !lastQr2().includes('view=die'), lastQr2().slice(0, 60));
     await t2.els['btn-sender-back'].fire('click');
+  }
+
+  // 11b. Sender: the D20 option on the switch
+  {
+    const pressedOf = (p, id) => (p.els[id] || { attrs: {} }).attrs['aria-pressed'];
+    const shell = p => (p.els['app-shell'] || { dataset: {} }).dataset;
+    const server = createServer();
+    const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const t = boot({ server, store, share: true });
+    await t.els['btn-choose-sender'].fire('click');
+    const room = t.text('s-room-code');
+    const lastQr = () => t.qr[t.qr.length - 1] || '';
+    const pressed = () => `${pressedOf(t, 'btn-link-viewer')},${pressedOf(t, 'btn-link-die')},${pressedOf(t, 'btn-link-d20')}`;
+    await (t.els['btn-link-d20'] || boot.noEl).fire('click');
+    check('D20 switch: QR opens the d20 page with credentials', pressed() === 'false,false,true' && lastQr().includes(`?room=${room}&view=d20#u=`) && store.get('gyrolink_sender_link') === 'd20', `${pressed()} ${lastQr().slice(0, 60)}`);
+    await t.els['btn-copy-link'].fire('click');
+    check('D20 switch: Share Link shares the d20 link titled Die', t.shares[0] && t.shares[0].url === lastQr() && t.shares[0].title === 'Die', JSON.stringify(t.shares[0]).slice(0, 80));
+
+    const u = new URL(lastQr());
+    const d = boot({ server, store: new Map(), search: u.search, hash: u.hash });
+    await sleep(150);
+    check('scanned d20 QR opens the d20 page and joins', shell(d).page === 'die' && d.els['v-stage'].dataset.model === 'd20' && d.location.search === `?room=${room}&view=d20` && d.location.hash === '', `${shell(d).page} ${d.location.search}`);
+
+    t.els['chk-include-creds'].checked = false;
+    await t.els['chk-include-creds'].fire('change');
+    check('d20 link without credentials', lastQr() === `https://example.com/?room=${room}&view=d20`, lastQr());
+    t.els['chk-include-creds'].checked = true;
+    await t.els['chk-include-creds'].fire('change');
+
+    await t.els['btn-new-room'].fire('click');
+    await sleep(300);
+    const room2 = t.text('s-room-code');
+    check('New keeps the d20 link on the new room', lastQr().includes(`?room=${room2}&view=d20#`), lastQr().slice(0, 60));
+    await d.els['btn-viewer-back'].fire('click');
+    await t.els['btn-sender-back'].fire('click');
+
+    const t2 = boot({ store });
+    await t2.els['btn-choose-sender'].fire('click');
+    const lastQr2 = () => t2.qr[t2.qr.length - 1] || '';
+    check('d20 link choice is remembered on reload', pressedOf(t2, 'btn-link-d20') === 'true' && lastQr2().includes('&view=d20'), lastQr2().slice(0, 60));
+    await t2.els['btn-sender-back'].fire('click');
+
+    for (const junk of ['foo', 'toString']) {
+      const j = boot({ store: new Map([...store, ['gyrolink_sender_link', junk]]) });
+      await j.els['btn-choose-sender'].fire('click');
+      const q = j.qr[j.qr.length - 1] || '';
+      check(`unknown saved link "${junk}" falls back to the Viewer link`, pressedOf(j, 'btn-link-viewer') === 'true' && !q.includes('view='), q.slice(0, 60));
+      await j.els['btn-sender-back'].fire('click');
+    }
   }
 
   // 12. Screen wake lock: asked for again when the browser drops it, and on a tap after a refusal
