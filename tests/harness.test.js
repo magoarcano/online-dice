@@ -236,17 +236,20 @@ const expectedCssMatrix = (a, b, g) => mul(mul(FLIP_Y, mul(mul(R.Z(rad(a)), R.X(
 const renderedCssMatrix = style => cssRotations
   .map(([axis, v]) => R[axis](rad(parseFloat(style[`--${v}`]))))
   .reduce((acc, m) => mul(acc, m));
-// Die faces as drawn: each `.die-N { transform: rotate…(θ) translateZ(…) }` rule, turned into the face's outward
-// normal in the model's CSS axes (the rule's rotations applied to (0, 0, 1))
+// Faces as drawn: each `.<prefix>-N { transform: rotate…(θ)… translateZ(…) }` rule, as the face's rotation matrix
+// in the model's CSS axes (x right, y down, z out of the screen)
 const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-const dieFaceNormals = Object.fromEntries([...html.matchAll(/\.die-(\d)\s*\{\s*transform:\s*([^;]+);/g)].map(([, n, t]) => {
-  const m = [...t.matchAll(/rotate([XYZ])\((-?[\d.]+)deg\)/g)].reduce((acc, [, axis, deg]) => mul(acc, R[axis](rad(+deg))), I3);
-  return [n, m.map(row => row[2])];
-}));
+const faceRotations = prefix => Object.fromEntries([...html.matchAll(new RegExp(`\\.${prefix}-(\\d+)\\s*\\{\\s*transform:\\s*([^;]+);`, 'g'))]
+  .map(([, n, t]) => [n, [...t.matchAll(/rotate([XYZ])\((-?[\d.]+)deg\)/g)].reduce((acc, [, axis, deg]) => mul(acc, R[axis](rad(+deg))), I3)]));
+// A face's outward normal is its rotation applied to (0, 0, 1)
+const normalsOf = rots => Object.fromEntries(Object.entries(rots).map(([n, m]) => [n, m.map(row => row[2])]));
+const dieFaceNormals = normalsOf(faceRotations('die'));
+const d20Rotations = faceRotations('d20');
+const d20FaceNormals = normalsOf(d20Rotations);
 // Height of each drawn face's normal once the model is rotated: CSS z points at the camera, i.e. up
-const drawnFaceHeights = style => {
+const drawnFaceHeights = (style, normals = dieFaceNormals) => {
   const M = renderedCssMatrix(style);
-  return Object.entries(dieFaceNormals)
+  return Object.entries(normals)
     .map(([n, v]) => [n, M[2].reduce((s, m, i) => s + m * v[i], 0)])
     .sort((x, y) => y[1] - x[1]);
 };
@@ -557,6 +560,108 @@ const check = (name, cond, detail = '') => results.push(`${cond ? 'PASS' : 'FAIL
     check('die choice is remembered on reload', t2.els['v-stage'].dataset.model === 'die', t2.els['v-stage'].dataset.model);
     await t2.els['btn-model-phone'].fire('click');
     check('Phone button switches back and saves the choice', t2.els['v-stage'].dataset.model === 'phone' && store.get('gyrolink_viewer_model') === 'phone');
+  }
+
+  // 9b. D20: geometry and numbering as drawn, then the Viewer's D20 tab
+  {
+    const toDev = v => [v[0], -v[1], v[2]];
+    const near = (u, v) => u.every((x, i) => Math.abs(x - v[i]) < 1e-3);
+    const deg = r => r * 180 / Math.PI;
+    const N = Object.fromEntries(Object.entries(d20FaceNormals).map(([n, v]) => [n, toDev(v)])); // device axes
+    const nums = Object.keys(N).map(Number).sort((a, b) => a - b);
+    check('d20: faces 1–20 drawn', nums.join() === Array.from({ length: 20 }, (_, i) => i + 1).join(), nums.join());
+    // Corners of each drawn triangle: edge 1, centroid at the origin, apex toward local +y, pushed out by the inradius
+    const local = [[0, 0.57735], [0.5, -0.288675], [-0.5, -0.288675]];
+    const corners = Object.entries(d20Rotations).flatMap(([n, M]) => local.map(([x, y]) =>
+      ({ n: +n, p: toDev(M.map(row => row[0] * x + row[1] * y + row[2] * 0.755761)) })));
+    const verts = []; // cluster corners that coincide
+    for (const c of corners) {
+      const v = verts.find(v => near(v.p, c.p));
+      v ? v.faces.push(c.n) : verts.push({ p: c.p, faces: [c.n] });
+    }
+    check('d20: drawn triangles close into an icosahedron', verts.length === 12 && verts.every(v => v.faces.length === 5), `corners=${verts.length}`);
+    check('d20: 1 on the screen side, 20 on the back', near(N[1], [0, 0, 1]) && near(N[20], [0, 0, -1]));
+    check('d20: opposite faces add up to 21', nums.every(n => near(N[n], N[21 - n].map(x => -x))));
+    check("d20: a corner of 20 points along the phone's top edge", verts.some(v => v.faces.includes(20) && Math.abs(v.p[0]) < 1e-3 && v.p[1] > 0));
+    const sums = verts.map(v => v.faces.reduce((s, n) => s + n, 0));
+    check('d20: every corner sums to 52 or 53', sums.every(s => s === 52 || s === 53), sums.join());
+
+    // CSS: which parts each model shows. Every `.stage-container[data-model="X"] .cls` / `:not([data-model="X"]) .cls`
+    // selector in a display: none rule is read; one that doesn't fit the pattern fails the check instead of being ignored.
+    const css = html.match(/<style>([\s\S]*?)<\/style>/)[1].replace(/\/\*[\s\S]*?\*\//g, '');
+    const hides = []; // { not, model, cls }
+    let unparsed = 0;
+    for (const [, sel, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/display:\s*none/.test(body)) continue;
+      for (const s of sel.split(',').map(x => x.trim()).filter(x => x.includes('data-model') && x.includes('stage-container'))) {
+        const m = s.match(/^\.stage-container(:not\()?\[data-model="(\w+)"\]\)?\s+\.([\w-]+)$/);
+        m ? hides.push({ not: !!m[1], model: m[2], cls: m[3] }) : unparsed++;
+      }
+    }
+    const shown = (model, cls) => !hides.some(h => h.cls === cls && (h.not ? h.model !== model : h.model === model));
+    const visible = model => ['phone-face', 'die-face', 'd20-face', 'die-top-readout'].filter(c => shown(model, c)).join();
+    const wantVis = { phone: 'phone-face', die: 'die-face,die-top-readout', d20: 'd20-face,die-top-readout' };
+    const gotVis = Object.fromEntries(Object.keys(wantVis).map(m => [m, visible(m)]));
+    check('stage CSS shows the right parts for Phone, D6 and D20', unparsed === 0 && Object.keys(wantVis).every(m => gotVis[m] === wantVis[m]), `${unparsed} unparsed ${JSON.stringify(gotVis)}`);
+
+    // Viewer: D20 tab
+    const store = new Map([['gyrolink_supabase_url', 'https://abc.supabase.co'], ['gyrolink_supabase_anon_key', ANON]]);
+    const t = boot({ search: '?room=AB12', store });
+    await sleep(100);
+    const stage = t.els['v-stage'];
+    const pressed = () => ['phone', 'die', 'd20'].map(m => t.els[`btn-model-${m}`].attrs['aria-pressed']).join();
+    await t.els['btn-model-d20'].fire('click');
+    check('D20 tab shows the d20 and saves the choice', stage.dataset.model === 'd20' && pressed() === 'false,false,true' && store.get('gyrolink_viewer_model') === 'd20', `${stage.dataset.model} ${pressed()}`);
+    check('d20 top number is — before any packet', t.text('v-die-top') === '—', t.text('v-die-top'));
+
+    const ch = t.mock.channels[0];
+    const send = (a, b, g) => ch.handlers.broadcast[0]({ payload: { a, b, g, seq: 1, ts: Date.now() } });
+    const top = (a, b, g) => (send(a, b, g), t.text('v-die-top'));
+    // Rest the box so each drawn face points straight up: up = [-cos β sin γ, sin β, cos β cos γ]
+    const pose = v => [0, deg(Math.asin(v[1])), deg(Math.atan2(-v[0], v[2]))];
+    const read = nums.map(n => top(...pose(N[n])));
+    check('d20: every face reads its own number when it is on top', read.join() === nums.join(), read.join());
+
+    // Across many poses, the number is the face the drawn d20 points at the camera (skip poses within the hysteresis band)
+    let tested = 0;
+    const mismatches = [];
+    for (const a of [0, 135, 290]) for (const b of [-170, -120, -60, -20, 20, 60, 120, 170]) for (const g of [-75, -30, 0, 30, 75]) {
+      send(a, b, g);
+      const [[drawn, h1], [, h2]] = drawnFaceHeights(t.els['model-3d'].style, d20FaceNormals);
+      if (h1 - h2 < 0.05) continue;
+      tested++;
+      if (t.text('v-die-top') !== drawn) mismatches.push(`${a}/${b}/${g}: shows ${t.text('v-die-top')}, drawn ${drawn}`);
+    }
+    check('d20 top number matches the face the drawn d20 has on top', tested > 60 && mismatches.length === 0, `tested=${tested} ${mismatches.slice(0, 3).join('; ')}`);
+
+    const band = [18, 22, 25, 22, 19, 16].map(b => top(0, b, 0)).join();
+    check('d20 top number holds near an edge (no flicker)', band === '1,1,7,7,7,1', band);
+
+    // A corner of face 1 (faces 1, 8, 16, 12, 15 meet) is straight up at β ≈ -37.38°
+    const first = top(0, -37.38, 0);
+    const jitter = [[-36.6, 0.8], [-38.2, -0.8], [-37.4, 1], [-36.8, -1], [-38, 0.6]].map(([b, g]) => top(0, b, g));
+    check('d20 top number holds on a corner', ['1', '8', '12', '15', '16'].includes(first) && jitter.every(x => x === first), `${first} ${jitter}`);
+
+    // Switching dice recomputes at once and never carries the old die's face over
+    await t.els['btn-model-die'].fire('click');
+    const cube = top(0, -36, -4);   // cube: 1. d20: 8, only 0.023 above its face 1
+    await t.els['btn-model-d20'].fire('click');
+    const d20 = t.text('v-die-top');
+    await t.els['btn-model-die'].fire('click');
+    const back = t.text('v-die-top');
+    check('switching D6 → D20 → D6 shows each die\'s own number at once', `${cube},${d20},${back}` === '1,8,1', `${cube},${d20},${back}`);
+    await t.els['btn-model-d20'].fire('click');
+    send(0, 60, 20);
+    await t.els['btn-calibrate'].fire('click');
+    check('calibrate re-zeroes the d20 like the model', t.text('v-die-top') === '1', t.text('v-die-top'));
+    await t.els['btn-viewer-back'].fire('click');
+
+    const t2 = boot({ store });
+    check('d20 choice is remembered on reload', t2.els['v-stage'].dataset.model === 'd20', t2.els['v-stage'].dataset.model);
+    for (const junk of ['foo', 'toString']) {
+      const j = boot({ store: new Map([...store, ['gyrolink_viewer_model', junk]]) });
+      check(`saved model "${junk}" falls back to the phone`, j.els['v-stage'].dataset.model === 'phone', j.els['v-stage'].dataset.model);
+    }
   }
 
   // 10. Die page: the Viewer with only the die, the top number and the status
